@@ -1,0 +1,1295 @@
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Heart,
+  Phone,
+  Star,
+  Shield,
+  Users,
+  Clock,
+  MapPin,
+  Award,
+  ChevronLeft,
+  ChevronRight,
+  Calendar as CalendarIcon,
+  Lock,
+  UserCheck,
+} from "lucide-react";
+import { Link } from "react-router-dom";
+import { useState } from "react";
+import { format } from "date-fns";
+import { useToast } from "@/components/ui/use-toast";
+import { Toaster } from "@/components/ui/toaster";
+// EmailJS integration - no need to import supabase for email functionality
+import {
+  TrustBadges,
+  SocialProof,
+  UrgencyIndicator,
+  EmergencyContact,
+  LocalCredentials,
+} from "@/components/ui/trust-indicators";
+import {
+  CountdownTimer,
+  StickyCallToAction,
+  ValueProposition,
+  RiskReversal,
+  TestimonialHighlight,
+  CallToActionButtons,
+} from "@/components/ui/conversion-optimizers";
+
+interface Review {
+  id: string;
+  name: string;
+  rating: number;
+  text: string;
+  date: string;
+}
+
+export default function LandingPage() {
+  const { toast } = useToast();
+  const [currentTestimonial, setCurrentTestimonial] = useState(0);
+  const [selectedDate, setSelectedDate] = useState<Date>();
+  const [selectedTime, setSelectedTime] = useState("");
+  const [showReviewForm, setShowReviewForm] = useState(false);
+  const [submittedReviews, setSubmittedReviews] = useState<Review[]>(() => {
+    // Load reviews from localStorage on component mount
+    const savedReviews = localStorage.getItem("serene-wings-reviews");
+    return savedReviews ? JSON.parse(savedReviews) : [];
+  });
+  const [reviewForm, setReviewForm] = useState({
+    name: "",
+    email: "",
+    rating: 5,
+    text: "",
+  });
+  const [consultationForm, setConsultationForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    serviceType: "",
+    address: "",
+    notes: "",
+  });
+  const [isSubmittingConsultation, setIsSubmittingConsultation] =
+    useState(false);
+
+  const testimonials = [
+    {
+      name: "Sarah Johnson",
+      location: "North Raleigh",
+      text: "Serene Wings has been a blessing for our family. The caregiver they provided for my mother is compassionate, professional, and truly cares about her wellbeing.",
+      rating: 5,
+    },
+    {
+      name: "Michael Chen",
+      location: "Cary",
+      text: "The Alzheimer's care program gave us peace of mind. Their specialized approach and 24/7 support made all the difference during a difficult time.",
+      rating: 5,
+    },
+    {
+      name: "Linda Rodriguez",
+      location: "Wake Forest",
+      text: "Professional, reliable, and caring. Our caregiver has become like family to us. I highly recommend Serene Wings to anyone needing quality care.",
+      rating: 5,
+    },
+  ];
+
+  const nextTestimonial = () => {
+    setCurrentTestimonial((prev) => (prev + 1) % testimonials.length);
+  };
+
+  const prevTestimonial = () => {
+    setCurrentTestimonial(
+      (prev) => (prev - 1 + testimonials.length) % testimonials.length,
+    );
+  };
+
+  const scrollToConsultation = () => {
+    const consultationSection = document.getElementById("consultation-form");
+    if (consultationSection) {
+      consultationSection.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }
+  };
+
+  const handleConsultationSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmittingConsultation(true);
+
+    // Validate required fields
+    if (
+      !consultationForm.name.trim() ||
+      !consultationForm.email.trim() ||
+      !selectedDate ||
+      !selectedTime ||
+      !consultationForm.serviceType
+    ) {
+      toast({
+        title: "Please fill in all required fields",
+        description: "Name, email, date, time, and service type are required.",
+        variant: "destructive",
+      });
+      setIsSubmittingConsultation(false);
+      return;
+    }
+
+    try {
+      // Wait for EmailJS to be available with timeout
+      const waitForEmailJS = () => {
+        return new Promise((resolve, reject) => {
+          let attempts = 0;
+          const maxAttempts = 50; // 5 seconds total
+
+          const checkEmailJS = () => {
+            attempts++;
+            if (typeof window !== "undefined" && (window as any).emailjs) {
+              resolve(true);
+            } else if (attempts >= maxAttempts) {
+              reject(new Error("EmailJS failed to load after 5 seconds"));
+            } else {
+              setTimeout(checkEmailJS, 100);
+            }
+          };
+
+          checkEmailJS();
+        });
+      };
+
+      // Wait for EmailJS to be ready
+      await waitForEmailJS();
+      console.log("EmailJS is ready");
+
+      // Format service type for display
+      const formattedServiceType = consultationForm.serviceType
+        .replace(/-/g, " ")
+        .replace(/\b\w/g, (l: string) => l.toUpperCase());
+
+      // Prepare template parameters for EmailJS
+      const templateParams = {
+        from_name: consultationForm.name.trim(),
+        from_email: consultationForm.email.trim(),
+        phone: consultationForm.phone.trim() || "Not provided",
+        service_type: formattedServiceType,
+        preferred_date: format(selectedDate, "PPP"),
+        preferred_time: selectedTime,
+        address: consultationForm.address.trim() || "Not provided",
+        notes: consultationForm.notes.trim() || "No additional notes provided",
+        to_email: "serenewingscaregivingllc@gmail.com",
+        subject: `New Consultation Request from ${consultationForm.name.trim()}`,
+        message: `New consultation request received:\n\nClient: ${consultationForm.name.trim()}\nEmail: ${consultationForm.email.trim()}\nPhone: ${consultationForm.phone.trim() || "Not provided"}\nService: ${formattedServiceType}\nDate: ${format(selectedDate, "PPP")}\nTime: ${selectedTime}\nAddress: ${consultationForm.address.trim() || "Not provided"}\nNotes: ${consultationForm.notes.trim() || "No additional notes"}`,
+      };
+
+      console.log("Sending email with params:", templateParams);
+
+      // Send email using EmailJS with proper error handling
+      const result = await (window as any).emailjs.send(
+        "service_h9wqduy",
+        "template_xryflbn",
+        templateParams,
+      );
+
+      console.log("EmailJS result:", result);
+
+      // Check if the result indicates success
+      if (result.status === 200 || result.text === "OK") {
+        // Reset form only on success
+        setConsultationForm({
+          name: "",
+          email: "",
+          phone: "",
+          serviceType: "",
+          address: "",
+          notes: "",
+        });
+        setSelectedDate(undefined);
+        setSelectedTime("");
+
+        // Show friendly confirmation message
+        toast({
+          title: "🎉 Request Received Successfully!",
+          description:
+            "Thank you! We've received your consultation request and will be in touch within 2-4 hours to confirm your appointment. Check your email for confirmation details.",
+          duration: 6000,
+        });
+
+        // Show additional success message after a delay
+        setTimeout(() => {
+          toast({
+            title: "📧 Confirmation Email Sent",
+            description:
+              "We've sent a confirmation email with next steps. If you don't see it, please check your spam folder.",
+            duration: 5000,
+          });
+        }, 1000);
+      } else {
+        throw new Error(`EmailJS returned status: ${result.status}`);
+      }
+    } catch (error) {
+      console.error("Detailed error sending consultation request:", {
+        error,
+        message: error instanceof Error ? error.message : "Unknown error",
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+
+      // More specific error messages
+      let errorMessage =
+        "There was an issue submitting your request. Please call us directly at (919) 888-1810 and we'll be happy to help you schedule your consultation.";
+
+      if (error instanceof Error) {
+        if (error.message.includes("EmailJS failed to load")) {
+          errorMessage =
+            "Email service is temporarily unavailable. Please call us directly at (919) 888-1810 to schedule your consultation.";
+        } else if (
+          error.message.includes("Network") ||
+          error.message.includes("fetch")
+        ) {
+          errorMessage =
+            "Network connection issue. Please check your internet connection and try again, or call us at (919) 888-1810.";
+        }
+      }
+
+      toast({
+        title: "Submission Error",
+        description: errorMessage,
+        variant: "destructive",
+        duration: 8000,
+      });
+    } finally {
+      setIsSubmittingConsultation(false);
+    }
+  };
+
+  const handleReviewSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (
+      !reviewForm.name.trim() ||
+      !reviewForm.email.trim() ||
+      !reviewForm.text.trim()
+    ) {
+      toast({
+        title: "Please fill in all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const newReview: Review = {
+      id: Date.now().toString(),
+      name: reviewForm.name.trim(),
+      rating: reviewForm.rating,
+      text: reviewForm.text.trim(),
+      date: new Date().toLocaleDateString(),
+    };
+
+    const updatedReviews = [newReview, ...submittedReviews];
+    setSubmittedReviews(updatedReviews);
+
+    // Save to localStorage for persistence
+    localStorage.setItem(
+      "serene-wings-reviews",
+      JSON.stringify(updatedReviews),
+    );
+
+    setReviewForm({ name: "", email: "", rating: 5, text: "" });
+    setShowReviewForm(false);
+
+    toast({
+      title: "Thank you for your review!",
+      description:
+        "Your review has been submitted and is now visible on our site.",
+    });
+  };
+
+  return (
+    <div className="min-h-screen bg-white text-gray-900">
+      {/* Navigation */}
+      <header className="fixed top-0 z-50 w-full bg-white/95 backdrop-blur-sm border-b border-gray-200 shadow-sm">
+        <div className="max-w-7xl mx-auto flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center">
+            <Link to="/" className="flex items-center space-x-2">
+              <Heart className="h-8 w-8 text-blue-600" />
+              <span className="font-bold text-xl text-gray-900">
+                Serene Wings
+              </span>
+            </Link>
+          </div>
+          <nav className="hidden md:flex items-center space-x-8">
+            <Link
+              to="/services"
+              className="text-gray-600 hover:text-blue-600 transition-colors"
+            >
+              Services
+            </Link>
+            <Link
+              to="/about"
+              className="text-gray-600 hover:text-blue-600 transition-colors"
+            >
+              About
+            </Link>
+            <Link
+              to="/testimonials"
+              className="text-gray-600 hover:text-blue-600 transition-colors"
+            >
+              Testimonials
+            </Link>
+            <Link
+              to="/contact"
+              className="text-gray-600 hover:text-blue-600 transition-colors"
+            >
+              Contact
+            </Link>
+          </nav>
+          <div className="flex items-center space-x-4">
+            <Button
+              variant="ghost"
+              className="hidden sm:inline-flex items-center space-x-2"
+            >
+              <Phone className="h-4 w-4" />
+              <span>(919) 888-1810</span>
+            </Button>
+            <Button
+              onClick={scrollToConsultation}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              Get Started
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <main className="pt-16">
+        {/* Hero section */}
+        <section className="relative bg-gradient-to-br from-blue-50 to-indigo-100 py-20 lg:py-32">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="grid lg:grid-cols-2 gap-12 items-center">
+              <div className="text-left">
+                <h1 className="text-4xl lg:text-6xl font-bold text-gray-900 mb-6 leading-tight">
+                  Compassionate Care for Your
+                  <span className="text-blue-600 block">Loved Ones</span>
+                </h1>
+                <p className="text-xl text-gray-600 mb-8 leading-relaxed">
+                  Professional, personalized elderly care services in Raleigh,
+                  NC. Our certified caregivers provide peace of mind for
+                  families and dignity for seniors.
+                </p>
+                <div className="mb-8">
+                  <CallToActionButtons
+                    onConsultationClick={scrollToConsultation}
+                  />
+                </div>
+
+                <div className="flex items-center space-x-6 text-sm text-gray-600">
+                  <div className="flex items-center">
+                    <Shield className="h-5 w-5 text-green-600 mr-2" />
+                    <span>Licensed & Insured</span>
+                  </div>
+                  <div className="flex items-center">
+                    <Clock className="h-5 w-5 text-green-600 mr-2" />
+                    <span>24/7 Support</span>
+                  </div>
+                </div>
+              </div>
+              <div className="relative">
+                <img
+                  src="https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=600&q=80"
+                  alt="Caring caregiver with elderly woman"
+                  className="rounded-2xl shadow-2xl w-full h-[500px] object-cover"
+                />
+                <div className="absolute -bottom-6 -left-6">
+                  <SocialProof />
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Trust & Credentials Section */}
+        <section className="py-16 bg-white">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-12">
+              <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-4">
+                Trusted by Families Across Raleigh
+              </h2>
+              <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+                Our certified caregivers bring years of experience and genuine
+                compassion to every home we serve.
+              </p>
+            </div>
+
+            <TrustBadges />
+
+            {/* Local Credentials */}
+            <div className="mb-12">
+              <LocalCredentials />
+            </div>
+
+            {/* Value Proposition */}
+            <div className="mb-12">
+              <ValueProposition />
+            </div>
+
+            {/* Testimonial Carousel */}
+            <div
+              className="bg-gray-50 rounded-2xl p-8 relative"
+              id="testimonials"
+            >
+              <div className="text-center mb-8">
+                <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                  What Families Say
+                </h3>
+                <div className="flex justify-center mb-4">
+                  {[...Array(5)].map((_, i) => (
+                    <Star
+                      key={i}
+                      className="h-5 w-5 text-yellow-400 fill-current"
+                    />
+                  ))}
+                </div>
+                <Button
+                  onClick={() => setShowReviewForm(true)}
+                  variant="outline"
+                  className="border-blue-600 text-blue-600 hover:bg-blue-50"
+                >
+                  Give Us a Review
+                </Button>
+              </div>
+
+              <div className="max-w-4xl mx-auto">
+                <div className="text-center">
+                  <blockquote className="text-lg text-gray-700 mb-6 italic">
+                    &quot;{testimonials[currentTestimonial].text}&quot;
+                  </blockquote>
+                  <div className="flex items-center justify-center space-x-2">
+                    <div className="text-center">
+                      <p className="font-semibold text-gray-900">
+                        {testimonials[currentTestimonial].name}
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        {testimonials[currentTestimonial].location}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-center items-center space-x-4 mt-8">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={prevTestimonial}
+                    className="p-2 hover:bg-white"
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </Button>
+                  <div className="flex space-x-2">
+                    {testimonials.map((_, index) => (
+                      <button
+                        key={index}
+                        className={`w-2 h-2 rounded-full transition-colors ${
+                          index === currentTestimonial
+                            ? "bg-blue-600"
+                            : "bg-gray-300"
+                        }`}
+                        onClick={() => setCurrentTestimonial(index)}
+                      />
+                    ))}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={nextTestimonial}
+                    className="p-2 hover:bg-white"
+                  >
+                    <ChevronRight className="h-5 w-5" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Services Section */}
+        <section className="py-16 bg-gray-50" id="services">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-12">
+              <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-4">
+                Comprehensive Care Services
+              </h2>
+              <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+                From companionship to specialized medical care, we provide
+                personalized services tailored to your loved one's unique needs.
+              </p>
+            </div>
+
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+              <Card className="hover:shadow-lg transition-shadow">
+                <CardHeader>
+                  <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
+                    <Heart className="h-6 w-6 text-blue-600" />
+                  </div>
+                  <CardTitle>Companion Care</CardTitle>
+                  <CardDescription>
+                    Social interaction, meal preparation, light housekeeping,
+                    and transportation assistance.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+
+              <Card className="hover:shadow-lg transition-shadow">
+                <CardHeader>
+                  <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
+                    <Users className="h-6 w-6 text-purple-600" />
+                  </div>
+                  <CardTitle>Personal Care</CardTitle>
+                  <CardDescription>
+                    Assistance with bathing, dressing, grooming, medication
+                    reminders, and mobility support.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+
+              <Card className="hover:shadow-lg transition-shadow">
+                <CardHeader>
+                  <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mb-4">
+                    <Shield className="h-6 w-6 text-green-600" />
+                  </div>
+                  <CardTitle>Alzheimer's & Dementia Care</CardTitle>
+                  <CardDescription>
+                    Specialized care for memory-related conditions with trained
+                    professionals and structured routines.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+
+              <Card className="hover:shadow-lg transition-shadow">
+                <CardHeader>
+                  <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center mb-4">
+                    <Clock className="h-6 w-6 text-orange-600" />
+                  </div>
+                  <CardTitle>24/7 Live-In Care</CardTitle>
+                  <CardDescription>
+                    Round-the-clock care in the comfort of home with dedicated
+                    live-in caregivers.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+
+              <Card className="hover:shadow-lg transition-shadow">
+                <CardHeader>
+                  <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center mb-4">
+                    <Heart className="h-6 w-6 text-red-600" />
+                  </div>
+                  <CardTitle>Respite Care</CardTitle>
+                  <CardDescription>
+                    Temporary relief for family caregivers, from a few hours to
+                    several days.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+
+              <Card className="hover:shadow-lg transition-shadow">
+                <CardHeader>
+                  <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center mb-4">
+                    <Award className="h-6 w-6 text-indigo-600" />
+                  </div>
+                  <CardTitle>Post-Hospital Care</CardTitle>
+                  <CardDescription>
+                    Transitional care support to ensure safe recovery and
+                    prevent readmission.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            </div>
+          </div>
+        </section>
+
+        {/* Local Service Areas Section */}
+        <section className="py-16 bg-white">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="grid lg:grid-cols-2 gap-12 items-center">
+              <div>
+                <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-6">
+                  Serving the Greater Raleigh Area
+                </h2>
+                <p className="text-lg text-gray-600 mb-8">
+                  We're proud to serve families throughout the Triangle area
+                  with compassionate, professional care services. Our local
+                  presence means we understand the unique needs of our
+                  community.
+                </p>
+
+                <div className="grid sm:grid-cols-2 gap-4 mb-8">
+                  <div className="flex items-center space-x-3">
+                    <MapPin className="h-5 w-5 text-blue-600" />
+                    <span className="text-gray-700">Raleigh</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <MapPin className="h-5 w-5 text-blue-600" />
+                    <span className="text-gray-700">Cary</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <MapPin className="h-5 w-5 text-blue-600" />
+                    <span className="text-gray-700">Wake Forest</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <MapPin className="h-5 w-5 text-blue-600" />
+                    <span className="text-gray-700">Apex</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <MapPin className="h-5 w-5 text-blue-600" />
+                    <span className="text-gray-700">Morrisville</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <MapPin className="h-5 w-5 text-blue-600" />
+                    <span className="text-gray-700">Garner</span>
+                  </div>
+                </div>
+
+                <Button
+                  size="lg"
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  Check Service Availability
+                </Button>
+              </div>
+
+              <div className="relative">
+                <img
+                  src="https://images.unsplash.com/photo-1576091160399-112ba8d25d1f?w=600&q=80"
+                  alt="Raleigh NC skyline"
+                  className="rounded-2xl shadow-xl w-full h-[400px] object-cover"
+                />
+                <div className="absolute top-6 left-6 bg-white p-4 rounded-lg shadow-lg">
+                  <div className="flex items-center space-x-2">
+                    <MapPin className="h-5 w-5 text-blue-600" />
+                    <div>
+                      <p className="font-semibold text-gray-900">
+                        Local Presence
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        Serving Triangle families since 2015
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Schedule Consultation Section */}
+        <section className="py-16 bg-yellow-50" id="consultation-form">
+          <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-8">
+              <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-4">
+                🟨 Schedule a Free Consultation
+              </h2>
+              <p className="text-lg text-gray-600 mb-6">
+                Get started with a free consultation to discuss your care needs.
+              </p>
+
+              {/* Risk Reversal */}
+              <div className="mb-8">
+                <RiskReversal />
+              </div>
+            </div>
+
+            <Card className="p-8">
+              <form id="appointment-form" className="space-y-6">
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="consultName"
+                      className="text-base font-medium"
+                    >
+                      Your Name *
+                    </Label>
+                    <Input
+                      id="consultName"
+                      name="name"
+                      placeholder="Enter your full name"
+                      className="h-12 text-base"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="consultEmail"
+                      className="text-base font-medium"
+                    >
+                      Email Address *
+                    </Label>
+                    <Input
+                      id="consultEmail"
+                      name="email"
+                      type="email"
+                      placeholder="Enter your email"
+                      className="h-12 text-base"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="consultPhone"
+                    className="text-base font-medium"
+                  >
+                    Phone Number
+                  </Label>
+                  <Input
+                    id="consultPhone"
+                    name="phone"
+                    type="tel"
+                    placeholder="(919) 555-0123"
+                    className="h-12 text-base"
+                  />
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label className="text-base font-medium">
+                      Preferred Date *
+                    </Label>
+                    <Popover>
+                      <Input
+                        id="preferredDate"
+                        name="preferredDate"
+                        type="date"
+                        className="h-12 text-base"
+                        min={new Date().toISOString().split("T")[0]}
+                        required
+                      />
+                    </Popover>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="time" className="text-base font-medium">
+                      Preferred Time *
+                    </Label>
+                    <select
+                      id="preferredTime"
+                      name="preferredTime"
+                      className="h-12 text-base w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    >
+                      <option value="">Select time</option>
+                      <option value="9:00 AM">9:00 AM</option>
+                      <option value="10:00 AM">10:00 AM</option>
+                      <option value="11:00 AM">11:00 AM</option>
+                      <option value="1:00 PM">1:00 PM</option>
+                      <option value="2:00 PM">2:00 PM</option>
+                      <option value="3:00 PM">3:00 PM</option>
+                      <option value="4:00 PM">4:00 PM</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="serviceType"
+                    className="text-base font-medium"
+                  >
+                    Type of Service Needed *
+                  </Label>
+                  <select
+                    id="serviceType"
+                    name="serviceType"
+                    className="h-12 text-base w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  >
+                    <option value="">Select service type</option>
+                    <option value="Companion Care">Companion Care</option>
+                    <option value="Personal Care">Personal Care</option>
+                    <option value="Alzheimer's & Dementia Care">
+                      Alzheimer's & Dementia Care
+                    </option>
+                    <option value="24/7 Live-In Care">24/7 Live-In Care</option>
+                    <option value="Respite Care">Respite Care</option>
+                    <option value="Post-Hospital Care">
+                      Post-Hospital Care
+                    </option>
+                    <option value="Not Sure - Need Guidance">
+                      Not Sure - Need Guidance
+                    </option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="address" className="text-base font-medium">
+                    Address <span className="text-gray-500">(optional)</span>
+                  </Label>
+                  <Input
+                    id="address"
+                    name="address"
+                    placeholder="City, ZIP code for service availability"
+                    className="h-12 text-base"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="notes" className="text-base font-medium">
+                    Additional Notes or Special Requests
+                  </Label>
+                  <Textarea
+                    id="notes"
+                    name="notes"
+                    placeholder="Tell us about specific care needs, preferences, or questions..."
+                    className="min-h-[100px] text-base"
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  size="lg"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white h-12 text-base"
+                >
+                  🔵 Request Appointment
+                </Button>
+
+                <div className="text-center">
+                  <p className="text-sm text-gray-600">
+                    ✅ You'll receive a confirmation by phone or email shortly
+                    after submission.
+                  </p>
+                </div>
+              </form>
+            </Card>
+          </div>
+        </section>
+
+        {/* Why This Process is Safe and Easy Section */}
+        <section className="py-16 bg-purple-50">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-12">
+              <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-4">
+                🟪 Why This Process is Safe and Easy
+              </h2>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-8 mb-12">
+              <Card className="text-center p-6 hover:shadow-lg transition-shadow">
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Lock className="h-8 w-8 text-blue-600" />
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-3">
+                  🛡️ Secure and Private
+                </h3>
+                <p className="text-gray-600">
+                  Your data is encrypted and never shared without permission. We
+                  follow HIPAA guidelines to protect your privacy.
+                </p>
+              </Card>
+
+              <Card className="text-center p-6 hover:shadow-lg transition-shadow">
+                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Phone className="h-8 w-8 text-green-600" />
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-3">
+                  📞 Human Support
+                </h3>
+                <p className="text-gray-600">
+                  Need help? Call us anytime: <strong>(919) 888-1810</strong>.
+                  Real people are here to assist you every step of the way.
+                </p>
+              </Card>
+
+              <Card className="text-center p-6 hover:shadow-lg transition-shadow">
+                <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <UserCheck className="h-8 w-8 text-purple-600" />
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900 mb-3">
+                  👥 Personal Touch
+                </h3>
+                <p className="text-gray-600">
+                  Every request is reviewed by a real care coordinator within
+                  hours. No automated responses - just genuine care.
+                </p>
+              </Card>
+            </div>
+
+            {/* FAQ Section */}
+            <div className="max-w-2xl mx-auto">
+              <h3 className="text-2xl font-bold text-gray-900 mb-6 text-center">
+                Frequently Asked Questions
+              </h3>
+              <Accordion type="single" collapsible className="w-full">
+                <AccordionItem value="item-1">
+                  <AccordionTrigger className="text-left">
+                    Can I cancel an appointment later?
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    Yes, absolutely. You can cancel or reschedule your
+                    consultation at any time by calling us at (919) 888-1810 or
+                    emailing us. We understand that schedules change and we're
+                    flexible to accommodate your needs.
+                  </AccordionContent>
+                </AccordionItem>
+                <AccordionItem value="item-2">
+                  <AccordionTrigger className="text-left">
+                    How soon will a caregiver be assigned?
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    After your consultation, we typically match you with a
+                    qualified caregiver within 24-48 hours. For urgent needs, we
+                    can often arrange care the same day. Our goal is to provide
+                    care as quickly as possible while ensuring the perfect
+                    match.
+                  </AccordionContent>
+                </AccordionItem>
+                <AccordionItem value="item-3">
+                  <AccordionTrigger className="text-left">
+                    What happens during the free consultation?
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    During your free consultation, we'll discuss your loved
+                    one's specific needs, preferences, and schedule. We'll
+                    explain our services, answer all your questions, and create
+                    a personalized care plan. There's no obligation to proceed
+                    after the consultation.
+                  </AccordionContent>
+                </AccordionItem>
+                <AccordionItem value="item-4">
+                  <AccordionTrigger className="text-left">
+                    Are your caregivers licensed and insured?
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    Yes, all our caregivers are licensed, bonded, and insured.
+                    They undergo comprehensive background checks and receive
+                    ongoing training. We're fully licensed as a home care agency
+                    and carry liability insurance for your peace of mind.
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            </div>
+          </div>
+        </section>
+
+        {/* Final CTA Section with Social Proof */}
+        <section className="py-16 bg-blue-600">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            {/* Testimonial Highlight */}
+            <div className="mb-8">
+              <TestimonialHighlight />
+            </div>
+
+            <div className="text-center">
+              <h2 className="text-3xl lg:text-4xl font-bold text-white mb-6">
+                Ready to Get Started?
+              </h2>
+              <p className="text-xl text-blue-100 mb-8">
+                Join 200+ families who trust Serene Wings for compassionate
+                care.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <Button
+                  size="lg"
+                  variant="secondary"
+                  className="bg-white text-blue-600 hover:bg-gray-100 px-8 py-4 text-lg"
+                  onClick={scrollToConsultation}
+                >
+                  Schedule Free Consultation
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="border-white text-white hover:bg-white hover:text-blue-600 px-8 py-4 text-lg flex items-center"
+                >
+                  <Phone className="mr-2 h-5 w-5" />
+                  Call (919) 888-1810
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      {/* Footer */}
+      <footer className="bg-gray-900 text-white py-12" id="contact">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid md:grid-cols-4 gap-8 mb-8">
+            <div className="md:col-span-2">
+              <div className="flex items-center space-x-2 mb-4">
+                <Heart className="h-8 w-8 text-blue-400" />
+                <span className="font-bold text-xl">
+                  Serene Wings Caregiving
+                </span>
+              </div>
+              <p className="text-gray-300 mb-6 max-w-md">
+                Providing compassionate, professional elderly care services to
+                families throughout the Raleigh, NC area since 2015.
+              </p>
+              <div className="space-y-2">
+                <div className="flex items-center space-x-3">
+                  <Phone className="h-5 w-5 text-blue-400" />
+                  <span>(919) 888-1810</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <MapPin className="h-5 w-5 text-blue-400" />
+                  <span>Serving Greater Raleigh, NC</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="font-semibold text-lg mb-4">Services</h4>
+              <ul className="space-y-2 text-gray-300">
+                <li>
+                  <Link
+                    to="#services"
+                    className="hover:text-white transition-colors"
+                  >
+                    Companion Care
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    to="#services"
+                    className="hover:text-white transition-colors"
+                  >
+                    Personal Care
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    to="#services"
+                    className="hover:text-white transition-colors"
+                  >
+                    Alzheimer's Care
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    to="#services"
+                    className="hover:text-white transition-colors"
+                  >
+                    24/7 Live-In Care
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    to="#services"
+                    className="hover:text-white transition-colors"
+                  >
+                    Respite Care
+                  </Link>
+                </li>
+              </ul>
+            </div>
+
+            <div>
+              <h4 className="font-semibold text-lg mb-4">Company</h4>
+              <ul className="space-y-2 text-gray-300">
+                <li>
+                  <Link
+                    to="/about"
+                    className="hover:text-white transition-colors"
+                  >
+                    About Us
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    to="/testimonials"
+                    className="hover:text-white transition-colors"
+                  >
+                    Testimonials
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/" className="hover:text-white transition-colors">
+                    Careers
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    to="/contact"
+                    className="hover:text-white transition-colors"
+                  >
+                    Contact
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/" className="hover:text-white transition-colors">
+                    Emergency Support
+                  </Link>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="border-t border-gray-800 pt-8 flex flex-col md:flex-row justify-between items-center">
+            <p className="text-gray-400 text-sm">
+              © 2025 Serene Wings Caregiving. All rights reserved. Licensed &
+              Insured.
+            </p>
+            <div className="flex space-x-6 mt-4 md:mt-0">
+              <Link
+                to="/"
+                className="text-gray-400 hover:text-white text-sm transition-colors"
+              >
+                Privacy Policy
+              </Link>
+              <Link
+                to="/"
+                className="text-gray-400 hover:text-white text-sm transition-colors"
+              >
+                Terms of Service
+              </Link>
+              <Link
+                to="/"
+                className="text-gray-400 hover:text-white text-sm transition-colors"
+              >
+                Accessibility
+              </Link>
+            </div>
+          </div>
+        </div>
+      </footer>
+
+      {/* Enhanced Mobile Experience */}
+      <StickyCallToAction onConsultationClick={scrollToConsultation} />
+      <EmergencyContact />
+
+      {/* Review Form Modal */}
+      <Dialog open={showReviewForm} onOpenChange={setShowReviewForm}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Share Your Experience</DialogTitle>
+            <DialogDescription>
+              Help other families by sharing your experience with Serene Wings
+              Caregiving.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleReviewSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="reviewName" className="text-sm font-medium">
+                Full Name *
+              </Label>
+              <Input
+                id="reviewName"
+                value={reviewForm.name}
+                onChange={(e) =>
+                  setReviewForm({ ...reviewForm, name: e.target.value })
+                }
+                placeholder="Enter your full name"
+                className="h-10"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="reviewEmail" className="text-sm font-medium">
+                Email Address *{" "}
+                <span className="text-gray-500">(not shown publicly)</span>
+              </Label>
+              <Input
+                id="reviewEmail"
+                type="email"
+                value={reviewForm.email}
+                onChange={(e) =>
+                  setReviewForm({ ...reviewForm, email: e.target.value })
+                }
+                placeholder="Enter your email"
+                className="h-10"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Rating *</Label>
+              <Select
+                value={reviewForm.rating.toString()}
+                onValueChange={(value) =>
+                  setReviewForm({ ...reviewForm, rating: parseInt(value) })
+                }
+              >
+                <SelectTrigger className="h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="5">⭐⭐⭐⭐⭐ (5 stars)</SelectItem>
+                  <SelectItem value="4">⭐⭐⭐⭐ (4 stars)</SelectItem>
+                  <SelectItem value="3">⭐⭐⭐ (3 stars)</SelectItem>
+                  <SelectItem value="2">⭐⭐ (2 stars)</SelectItem>
+                  <SelectItem value="1">⭐ (1 star)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="reviewText" className="text-sm font-medium">
+                Your Review *
+              </Label>
+              <Textarea
+                id="reviewText"
+                value={reviewForm.text}
+                onChange={(e) =>
+                  setReviewForm({ ...reviewForm, text: e.target.value })
+                }
+                placeholder="Share your experience with our caregiving services..."
+                className="min-h-[100px]"
+                required
+              />
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowReviewForm(false)}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Submit Review
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Toaster />
+    </div>
+  );
+}
