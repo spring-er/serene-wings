@@ -25,9 +25,10 @@ import {
 } from "@/components/ui/select";
 import { Heart, Phone, Star, ChevronLeft, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { Toaster } from "@/components/ui/toaster";
+import { supabase } from "../../../supabase/supabase";
 
 interface Review {
   id: string;
@@ -42,17 +43,63 @@ export default function TestimonialsPage() {
   const { toast } = useToast();
   const [currentTestimonial, setCurrentTestimonial] = useState(0);
   const [showReviewForm, setShowReviewForm] = useState(false);
-  const [submittedReviews, setSubmittedReviews] = useState<Review[]>(() => {
-    // Load reviews from localStorage on component mount
-    const savedReviews = localStorage.getItem("serene-wings-reviews");
-    return savedReviews ? JSON.parse(savedReviews) : [];
-  });
+  const [submittedReviews, setSubmittedReviews] = useState<Review[]>([]);
   const [reviewForm, setReviewForm] = useState({
     name: "",
     email: "",
     rating: 5,
     text: "",
+    location: "",
   });
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [isLoadingTestimonials, setIsLoadingTestimonials] = useState(true);
+
+  // Load EmailJS SDK and fetch testimonials from database
+  useEffect(() => {
+    const loadEmailJS = () => {
+      // Check if EmailJS is already initialized globally
+      if (typeof window !== "undefined" && (window as any).emailjsInitialized) {
+        console.log("✅ EmailJS already initialized globally");
+        return;
+      }
+
+      if (typeof window !== "undefined" && !(window as any).emailjs) {
+        const script = document.createElement("script");
+        script.src = "https://cdn.emailjs.com/dist/email.min.js";
+        script.onload = () => {
+          (window as any).emailjs.init("hY3udrZIX5U6NSVyG");
+          (window as any).emailjsInitialized = true;
+          console.log("✅ EmailJS initialized for testimonials page");
+        };
+        document.head.appendChild(script);
+      } else if (
+        (window as any).emailjs &&
+        !(window as any).emailjsInitialized
+      ) {
+        (window as any).emailjs.init("hY3udrZIX5U6NSVyG");
+        (window as any).emailjsInitialized = true;
+        console.log("✅ EmailJS initialized for testimonials page");
+      }
+    };
+
+    const initializePage = async () => {
+      setIsLoadingTestimonials(true);
+      loadEmailJS();
+      await fetchTestimonialsFromDatabase();
+    };
+
+    initializePage();
+  }, []);
+
+  // Auto-refresh testimonials every 30 seconds to catch new submissions
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!isLoadingTestimonials) {
+        fetchTestimonialsFromDatabase();
+      }
+    }, 30000); // 30 seconds
+    return () => clearInterval(interval);
+  }, [isLoadingTestimonials]);
 
   const testimonials = [
     {
@@ -107,6 +154,59 @@ export default function TestimonialsPage() {
 
   const allTestimonials = [...testimonials, ...submittedReviews];
 
+  const fetchTestimonialsFromDatabase = async () => {
+    try {
+      console.log(
+        "🔄 [Testimonials Page] Fetching testimonials from database...",
+      );
+
+      const { data, error } = await supabase
+        .from("testimonials")
+        .select("*")
+        .eq("is_approved", true)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error(
+          "❌ [Testimonials Page] Error fetching testimonials:",
+          error,
+        );
+        throw error;
+      }
+
+      // Transform database testimonials to match Review interface
+      const dbTestimonials =
+        data?.map((testimonial) => ({
+          id: testimonial.id,
+          name: testimonial.name,
+          rating: testimonial.rating,
+          text: testimonial.text,
+          date: new Date(
+            testimonial.created_at || Date.now(),
+          ).toLocaleDateString("en-US", {
+            month: "long",
+            year: "numeric",
+          }),
+          location: testimonial.location || "Raleigh Area",
+        })) || [];
+
+      setSubmittedReviews(dbTestimonials);
+      console.log(
+        `✅ [Testimonials Page] Successfully loaded ${dbTestimonials.length} testimonials from database`,
+        dbTestimonials,
+      );
+    } catch (error) {
+      console.error(
+        "❌ [Testimonials Page] Error fetching testimonials:",
+        error,
+      );
+      // Set empty array on error to prevent infinite loading
+      setSubmittedReviews([]);
+    } finally {
+      setIsLoadingTestimonials(false);
+    }
+  };
+
   const nextTestimonial = () => {
     setCurrentTestimonial((prev) => (prev + 1) % allTestimonials.length);
   };
@@ -117,50 +217,179 @@ export default function TestimonialsPage() {
     );
   };
 
-  const handleReviewSubmit = (e: React.FormEvent) => {
+  const handleReviewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmittingReview(true);
 
+    // Validate required fields
     if (
       !reviewForm.name.trim() ||
       !reviewForm.email.trim() ||
-      !reviewForm.text.trim()
+      !reviewForm.text.trim() ||
+      !reviewForm.location.trim()
     ) {
       toast({
         title: "Please fill in all required fields",
+        description: "Name, email, location, and review text are required.",
         variant: "destructive",
       });
+      setIsSubmittingReview(false);
       return;
     }
 
-    const newReview: Review = {
-      id: Date.now().toString(),
-      name: reviewForm.name.trim(),
-      rating: reviewForm.rating,
-      text: reviewForm.text.trim(),
-      date: new Date().toLocaleDateString("en-US", {
-        month: "long",
-        year: "numeric",
-      }),
-      location: "Raleigh Area",
-    };
+    // First, save to database immediately (more reliable than email)
+    let databaseSaveSuccess = false;
+    let newTestimonialId = null;
 
-    const updatedReviews = [newReview, ...submittedReviews];
-    setSubmittedReviews(updatedReviews);
+    try {
+      console.log(
+        "💾 [Testimonials Page] Saving testimonial to database first...",
+      );
 
-    // Save to localStorage for persistence
-    localStorage.setItem(
-      "serene-wings-reviews",
-      JSON.stringify(updatedReviews),
-    );
+      const { data, error } = await supabase
+        .from("testimonials")
+        .insert({
+          name: reviewForm.name.trim(),
+          email: reviewForm.email.trim(),
+          rating: reviewForm.rating,
+          text: reviewForm.text.trim(),
+          location: reviewForm.location.trim(),
+          is_approved: true,
+        })
+        .select()
+        .single();
 
-    setReviewForm({ name: "", email: "", rating: 5, text: "" });
-    setShowReviewForm(false);
+      if (error) {
+        console.error("❌ [Testimonials Page] Database save failed:", error);
+        throw error;
+      } else {
+        console.log(
+          "✅ [Testimonials Page] Testimonial saved to database successfully!",
+          data,
+        );
+        databaseSaveSuccess = true;
+        newTestimonialId = data.id;
 
-    toast({
-      title: "Thank you for your review!",
-      description:
-        "Your review has been submitted and is now visible on our site.",
-    });
+        // Immediately refresh testimonials from database to show the new one
+        await fetchTestimonialsFromDatabase();
+      }
+    } catch (dbError) {
+      console.error("❌ [Testimonials Page] Database save error:", dbError);
+
+      // Show database error but continue with email
+      toast({
+        title: "⚠️ Database Save Issue",
+        description:
+          "There was an issue saving to our database, but we'll still send your review via email.",
+        variant: "destructive",
+        duration: 5000,
+      });
+    }
+
+    // Then, send email notification (secondary priority)
+    try {
+      // Wait for EmailJS to be available
+      const waitForEmailJS = () => {
+        return new Promise((resolve, reject) => {
+          let attempts = 0;
+          const maxAttempts = 50;
+
+          const checkEmailJS = () => {
+            attempts++;
+            if (typeof window !== "undefined" && (window as any).emailjs) {
+              resolve(true);
+            } else if (attempts >= maxAttempts) {
+              reject(new Error("EmailJS failed to load after 5 seconds"));
+            } else {
+              setTimeout(checkEmailJS, 100);
+            }
+          };
+
+          checkEmailJS();
+        });
+      };
+
+      await waitForEmailJS();
+      console.log("EmailJS is ready for testimonial submission");
+
+      // Format rating for display (matching your template structure)
+      const starRating = "⭐".repeat(reviewForm.rating);
+
+      // Prepare template parameters exactly as you specified
+      const templateParams = {
+        from_name: reviewForm.name.trim(),
+        from_email: reviewForm.email.trim(),
+        message: `${starRating} (${reviewForm.rating}/5 stars)\n\nLocation: ${reviewForm.location.trim()}\n\nReview: ${reviewForm.text.trim()}\n\n${databaseSaveSuccess ? `Database ID: ${newTestimonialId}` : "Database save failed - manual review needed"}`,
+        to_name: "Serene Wings Team",
+        reply_to: reviewForm.email.trim(),
+      };
+
+      console.log("Sending testimonial email with params:", templateParams);
+
+      // Send email using your exact EmailJS configuration
+      const result = await (window as any).emailjs.send(
+        "default_service", // Your service ID
+        "template_f3hqekj", // Your template ID
+        templateParams,
+        "hY3udrZIX5U6NSVyG", // Use public key as string parameter
+      );
+
+      console.log("EmailJS testimonial result:", result);
+
+      if (result.status === 200 || result.text === "OK") {
+        console.log("✅ [Testimonials Page] Email sent successfully!");
+      } else {
+        console.warn(
+          "⚠️ [Testimonials Page] Email may not have sent properly:",
+          result,
+        );
+      }
+    } catch (emailError) {
+      console.error("❌ [Testimonials Page] Email send error:", emailError);
+
+      // Don't fail the entire process if email fails, since database save is more important
+      if (!databaseSaveSuccess) {
+        // Only show email error if database also failed
+        toast({
+          title: "⚠️ Email Send Issue",
+          description:
+            "There was an issue sending the email notification, but your review may still be saved.",
+          variant: "destructive",
+          duration: 5000,
+        });
+      }
+    }
+
+    // Show success message if database save worked (regardless of email status)
+    if (databaseSaveSuccess) {
+      toast({
+        title: "✅ Thank you for your testimonial!",
+        description:
+          "Your review has been saved successfully and will appear on our website. We appreciate your feedback!",
+        duration: 6000,
+      });
+
+      // Reset form and close modal
+      setReviewForm({
+        name: "",
+        email: "",
+        rating: 5,
+        text: "",
+        location: "",
+      });
+      setShowReviewForm(false);
+    } else {
+      // If database save failed, show error
+      toast({
+        title: "❌ Failed to save testimonial",
+        description:
+          "There was an issue saving your review. Please try again or call us at +1(919)633-2118 or +1(919)888-1810.",
+        variant: "destructive",
+        duration: 8000,
+      });
+    }
+
+    setIsSubmittingReview(false);
   };
 
   return (
@@ -208,7 +437,10 @@ export default function TestimonialsPage() {
               className="hidden sm:inline-flex items-center space-x-2"
             >
               <Phone className="h-4 w-4" />
-              <span>(919) 888-1810</span>
+              <div className="flex flex-col text-sm">
+                <span>+1(919)633-2118</span>
+                <span>+1(919)888-1810</span>
+              </div>
             </Button>
             <Link to="/contact">
               <Button className="bg-blue-600 hover:bg-blue-700 text-white">
@@ -262,7 +494,12 @@ export default function TestimonialsPage() {
                 </Button>
               </div>
 
-              {allTestimonials.length > 0 && (
+              {isLoadingTestimonials ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                  <p className="text-gray-600">Loading testimonials...</p>
+                </div>
+              ) : allTestimonials.length > 0 ? (
                 <div className="max-w-3xl mx-auto">
                   <div className="text-center">
                     <blockquote className="text-lg text-gray-700 mb-6 italic">
@@ -312,6 +549,12 @@ export default function TestimonialsPage() {
                       <ChevronRight className="h-5 w-5" />
                     </Button>
                   </div>
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-gray-600">
+                    No testimonials available at the moment.
+                  </p>
                 </div>
               )}
             </div>
@@ -395,7 +638,7 @@ export default function TestimonialsPage() {
                 className="border-white text-white hover:bg-white hover:text-blue-600 px-8 py-4 text-lg flex items-center"
               >
                 <Phone className="mr-2 h-5 w-5" />
-                Call (919) 888-1810
+                Call +1(919)633-2118
               </Button>
             </div>
           </div>
@@ -415,12 +658,15 @@ export default function TestimonialsPage() {
               </div>
               <p className="text-gray-300 mb-6 max-w-md">
                 Providing compassionate, professional elderly care services to
-                families throughout the Raleigh, NC area since 2015.
+                families throughout the Raleigh, NC area since 2019.
               </p>
               <div className="space-y-2">
                 <div className="flex items-center space-x-3">
                   <Phone className="h-5 w-5 text-blue-400" />
-                  <span>(919) 888-1810</span>
+                  <div className="flex flex-col text-sm">
+                    <span>+1(919)633-2118</span>
+                    <span>+1(919)888-1810</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -556,8 +802,8 @@ export default function TestimonialsPage() {
                   setReviewForm({ ...reviewForm, rating: parseInt(value) })
                 }
               >
-                <SelectTrigger className="h-10">
-                  <SelectValue />
+                <SelectTrigger className="h-10" aria-label="Select rating">
+                  <SelectValue placeholder="Select rating" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="5">⭐⭐⭐⭐⭐ (5 stars)</SelectItem>
@@ -567,6 +813,22 @@ export default function TestimonialsPage() {
                   <SelectItem value="1">⭐ (1 star)</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="reviewLocation" className="text-sm font-medium">
+                Your Location *
+              </Label>
+              <Input
+                id="reviewLocation"
+                value={reviewForm.location}
+                onChange={(e) =>
+                  setReviewForm({ ...reviewForm, location: e.target.value })
+                }
+                placeholder="e.g., North Raleigh, Cary, Wake Forest"
+                className="h-10"
+                required
+              />
             </div>
 
             <div className="space-y-2">
@@ -597,8 +859,16 @@ export default function TestimonialsPage() {
               <Button
                 type="submit"
                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                disabled={isSubmittingReview}
               >
-                Submit Review
+                {isSubmittingReview ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Sending...
+                  </>
+                ) : (
+                  "Submit Review"
+                )}
               </Button>
             </div>
           </form>

@@ -11,18 +11,28 @@ import { Toaster } from "./components/ui/toaster";
 import { LoadingScreen } from "./components/ui/loading-spinner";
 
 function AppRoutes() {
+  // Handle Tempo routes first if in Tempo environment
+  if (import.meta.env.VITE_TEMPO === "true") {
+    const tempoRoutes = useRoutes(routes);
+    if (tempoRoutes) {
+      return tempoRoutes;
+    }
+  }
+
+  // Return regular application routes
   return (
-    <>
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/services" element={<ServicesPage />} />
-        <Route path="/about" element={<AboutPage />} />
-        <Route path="/testimonials" element={<TestimonialsPage />} />
-        <Route path="/contact" element={<ContactPage />} />
-        <Route path="/success" element={<Success />} />
-      </Routes>
-      {import.meta.env.VITE_TEMPO === "true" && useRoutes(routes)}
-    </>
+    <Routes>
+      <Route path="/" element={<Home />} />
+      <Route path="/services" element={<ServicesPage />} />
+      <Route path="/about" element={<AboutPage />} />
+      <Route path="/testimonials" element={<TestimonialsPage />} />
+      <Route path="/contact" element={<ContactPage />} />
+      <Route path="/success" element={<Success />} />
+      {/* Tempo routes fallback */}
+      {import.meta.env.VITE_TEMPO === "true" && (
+        <Route path="/tempobook/*" element={<div />} />
+      )}
+    </Routes>
   );
 }
 

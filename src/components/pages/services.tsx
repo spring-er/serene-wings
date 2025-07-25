@@ -116,7 +116,10 @@ export default function ServicesPage() {
               className="hidden sm:inline-flex items-center space-x-2"
             >
               <Phone className="h-4 w-4" />
-              <span>(919) 888-1810</span>
+              <div className="flex flex-col text-sm">
+                <span>+1(919)633-2118</span>
+                <span>+1(919)888-1810</span>
+              </div>
             </Button>
             <Link to="/contact">
               <Button className="bg-blue-600 hover:bg-blue-700 text-white">
@@ -208,12 +211,15 @@ export default function ServicesPage() {
               </div>
               <p className="text-gray-300 mb-6 max-w-md">
                 Providing compassionate, professional elderly care services to
-                families throughout the Raleigh, NC area since 2015.
+                families throughout the Raleigh, NC area since 2019.
               </p>
               <div className="space-y-2">
                 <div className="flex items-center space-x-3">
                   <Phone className="h-5 w-5 text-blue-400" />
-                  <span>(919) 888-1810</span>
+                  <div className="flex flex-col text-sm">
+                    <span>+1(919)633-2118</span>
+                    <span>+1(919)888-1810</span>
+                  </div>
                 </div>
               </div>
             </div>

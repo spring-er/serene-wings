@@ -51,11 +51,12 @@ import {
   UserCheck,
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { useToast } from "@/components/ui/use-toast";
 import { Toaster } from "@/components/ui/toaster";
-// EmailJS integration - no need to import supabase for email functionality
+// EmailJS integration and Supabase for testimonials
+import { supabase } from "../../../supabase/supabase";
 import {
   TrustBadges,
   SocialProof,
@@ -78,6 +79,7 @@ interface Review {
   rating: number;
   text: string;
   date: string;
+  location?: string;
 }
 
 export default function LandingPage() {
@@ -86,16 +88,13 @@ export default function LandingPage() {
   const [selectedDate, setSelectedDate] = useState<Date>();
   const [selectedTime, setSelectedTime] = useState("");
   const [showReviewForm, setShowReviewForm] = useState(false);
-  const [submittedReviews, setSubmittedReviews] = useState<Review[]>(() => {
-    // Load reviews from localStorage on component mount
-    const savedReviews = localStorage.getItem("serene-wings-reviews");
-    return savedReviews ? JSON.parse(savedReviews) : [];
-  });
+  const [submittedReviews, setSubmittedReviews] = useState<Review[]>([]);
   const [reviewForm, setReviewForm] = useState({
     name: "",
     email: "",
     rating: 5,
     text: "",
+    location: "",
   });
   const [consultationForm, setConsultationForm] = useState({
     name: "",
@@ -107,35 +106,110 @@ export default function LandingPage() {
   });
   const [isSubmittingConsultation, setIsSubmittingConsultation] =
     useState(false);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [isLoadingTestimonials, setIsLoadingTestimonials] = useState(true);
 
-  const testimonials = [
+  // Load testimonials from database on component mount
+  useEffect(() => {
+    const initializeTestimonials = async () => {
+      setIsLoadingTestimonials(true);
+      await fetchTestimonials();
+    };
+    initializeTestimonials();
+  }, []);
+
+  // Auto-refresh testimonials every 30 seconds to catch new submissions
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!isLoadingTestimonials) {
+        fetchTestimonials();
+      }
+    }, 30000); // 30 seconds
+    return () => clearInterval(interval);
+  }, [isLoadingTestimonials]);
+
+  const fetchTestimonials = async () => {
+    try {
+      console.log("🔄 [Home] Fetching testimonials from database...");
+
+      const { data, error } = await supabase
+        .from("testimonials")
+        .select("*")
+        .eq("is_approved", true)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("❌ [Home] Error fetching testimonials:", error);
+        throw error;
+      }
+
+      // Transform database testimonials to match Review interface
+      const dbTestimonials =
+        data?.map((testimonial) => ({
+          id: testimonial.id,
+          name: testimonial.name,
+          rating: testimonial.rating,
+          text: testimonial.text,
+          date: new Date(
+            testimonial.created_at || Date.now(),
+          ).toLocaleDateString("en-US", {
+            month: "long",
+            year: "numeric",
+          }),
+          location: testimonial.location || "Raleigh Area",
+        })) || [];
+
+      setSubmittedReviews(dbTestimonials);
+      console.log(
+        `✅ [Home] Successfully loaded ${dbTestimonials.length} testimonials from database`,
+        dbTestimonials,
+      );
+    } catch (error) {
+      console.error("❌ [Home] Error fetching testimonials:", error);
+      // Set empty array on error to prevent infinite loading
+      setSubmittedReviews([]);
+    } finally {
+      setIsLoadingTestimonials(false);
+    }
+  };
+
+  const defaultTestimonials = [
     {
+      id: "default-1",
       name: "Sarah Johnson",
       location: "North Raleigh",
       text: "Serene Wings has been a blessing for our family. The caregiver they provided for my mother is compassionate, professional, and truly cares about her wellbeing.",
       rating: 5,
+      date: "December 2024",
     },
     {
+      id: "default-2",
       name: "Michael Chen",
       location: "Cary",
       text: "The Alzheimer's care program gave us peace of mind. Their specialized approach and 24/7 support made all the difference during a difficult time.",
       rating: 5,
+      date: "November 2024",
     },
     {
+      id: "default-3",
       name: "Linda Rodriguez",
       location: "Wake Forest",
       text: "Professional, reliable, and caring. Our caregiver has become like family to us. I highly recommend Serene Wings to anyone needing quality care.",
       rating: 5,
+      date: "October 2024",
     },
   ];
 
+  // Combine default testimonials with database testimonials
+  const allTestimonials = [...submittedReviews, ...defaultTestimonials];
+
   const nextTestimonial = () => {
-    setCurrentTestimonial((prev) => (prev + 1) % testimonials.length);
+    setCurrentTestimonial((prev) => (prev + 1) % allTestimonials.length);
   };
 
   const prevTestimonial = () => {
     setCurrentTestimonial(
-      (prev) => (prev - 1 + testimonials.length) % testimonials.length,
+      (prev) => (prev - 1 + allTestimonials.length) % allTestimonials.length,
     );
   };
 
@@ -153,13 +227,27 @@ export default function LandingPage() {
     e.preventDefault();
     setIsSubmittingConsultation(true);
 
+    // Get form data from the actual form elements
+    const formData = new FormData(e.target as HTMLFormElement);
+    const name = formData.get("name") as string;
+    const email = formData.get("email") as string;
+    const phone = formData.get("phone") as string;
+    const serviceType = formData.get("serviceType") as string;
+    const preferredDate = formData.get("preferredDate") as string;
+    const preferredTime = formData.get("preferredTime") as string;
+    const address = formData.get("address") as string;
+    const notes = formData.get("notes") as string;
+
+    // Initialize templateParams early to avoid ReferenceError in catch block
+    let templateParams: any = null;
+
     // Validate required fields
     if (
-      !consultationForm.name.trim() ||
-      !consultationForm.email.trim() ||
-      !selectedDate ||
-      !selectedTime ||
-      !consultationForm.serviceType
+      !name?.trim() ||
+      !email?.trim() ||
+      !preferredDate ||
+      !preferredTime ||
+      !serviceType
     ) {
       toast({
         title: "Please fill in all required fields",
@@ -197,32 +285,43 @@ export default function LandingPage() {
       console.log("EmailJS is ready");
 
       // Format service type for display
-      const formattedServiceType = consultationForm.serviceType
+      const formattedServiceType = serviceType
         .replace(/-/g, " ")
         .replace(/\b\w/g, (l: string) => l.toUpperCase());
 
-      // Prepare template parameters for EmailJS
-      const templateParams = {
-        from_name: consultationForm.name.trim(),
-        from_email: consultationForm.email.trim(),
-        phone: consultationForm.phone.trim() || "Not provided",
+      // Format date for display
+      const formattedDate = new Date(preferredDate).toLocaleDateString(
+        "en-US",
+        {
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        },
+      );
+
+      // Prepare template parameters for EmailJS - using exact template variable names
+      templateParams = {
+        from_name: name.trim(),
+        from_email: email.trim(),
+        phone_number: phone?.trim() || "Not provided",
         service_type: formattedServiceType,
-        preferred_date: format(selectedDate, "PPP"),
-        preferred_time: selectedTime,
-        address: consultationForm.address.trim() || "Not provided",
-        notes: consultationForm.notes.trim() || "No additional notes provided",
-        to_email: "serenewingscaregivingllc@gmail.com",
-        subject: `New Consultation Request from ${consultationForm.name.trim()}`,
-        message: `New consultation request received:\n\nClient: ${consultationForm.name.trim()}\nEmail: ${consultationForm.email.trim()}\nPhone: ${consultationForm.phone.trim() || "Not provided"}\nService: ${formattedServiceType}\nDate: ${format(selectedDate, "PPP")}\nTime: ${selectedTime}\nAddress: ${consultationForm.address.trim() || "Not provided"}\nNotes: ${consultationForm.notes.trim() || "No additional notes"}`,
+        preferred_date: formattedDate,
+        preferred_time: preferredTime,
+        client_address: address?.trim() || "Not provided",
+        message: notes?.trim() || "No additional notes provided",
+        to_name: "Serene Wings Team",
+        reply_to: email.trim(),
       };
 
       console.log("Sending email with params:", templateParams);
 
       // Send email using EmailJS with proper error handling
       const result = await (window as any).emailjs.send(
-        "service_h9wqduy",
+        "default_service", // ✅ Use built-in EmailJS service
         "template_xryflbn",
         templateParams,
+        "MBvyIzybQI8o_Z3w-", // Use public key as string parameter
       );
 
       console.log("EmailJS result:", result);
@@ -230,16 +329,7 @@ export default function LandingPage() {
       // Check if the result indicates success
       if (result.status === 200 || result.text === "OK") {
         // Reset form only on success
-        setConsultationForm({
-          name: "",
-          email: "",
-          phone: "",
-          serviceType: "",
-          address: "",
-          notes: "",
-        });
-        setSelectedDate(undefined);
-        setSelectedTime("");
+        (e.target as HTMLFormElement).reset();
 
         // Show friendly confirmation message
         toast({
@@ -266,22 +356,31 @@ export default function LandingPage() {
         error,
         message: error instanceof Error ? error.message : "Unknown error",
         stack: error instanceof Error ? error.stack : undefined,
+        response:
+          error && typeof error === "object" && "text" in error
+            ? error.text
+            : "No response text",
+        status:
+          error && typeof error === "object" && "status" in error
+            ? error.status
+            : "No status",
+        templateParams: templateParams, // Now safely defined
       });
 
       // More specific error messages
       let errorMessage =
-        "There was an issue submitting your request. Please call us directly at (919) 888-1810 and we'll be happy to help you schedule your consultation.";
+        "There was an issue submitting your request. Please call us directly at +1(919)633-2118 or +1(919)888-1810 and we'll be happy to help you schedule your consultation.";
 
       if (error instanceof Error) {
         if (error.message.includes("EmailJS failed to load")) {
           errorMessage =
-            "Email service is temporarily unavailable. Please call us directly at (919) 888-1810 to schedule your consultation.";
+            "Email service is temporarily unavailable. Please call us directly at +1(919)633-2118 or +1(919)888-1810 to schedule your consultation.";
         } else if (
           error.message.includes("Network") ||
           error.message.includes("fetch")
         ) {
           errorMessage =
-            "Network connection issue. Please check your internet connection and try again, or call us at (919) 888-1810.";
+            "Network connection issue. Please check your internet connection and try again, or call us at +1(919)633-2118 or +1(919)888-1810.";
         }
       }
 
@@ -296,46 +395,201 @@ export default function LandingPage() {
     }
   };
 
-  const handleReviewSubmit = (e: React.FormEvent) => {
+  const handleReviewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmittingReview(true);
 
+    // Initialize templateParams early to avoid ReferenceError in catch block
+    let templateParams: any = null;
+
+    // Validate required fields
     if (
       !reviewForm.name.trim() ||
       !reviewForm.email.trim() ||
-      !reviewForm.text.trim()
+      !reviewForm.text.trim() ||
+      !reviewForm.location.trim()
     ) {
       toast({
         title: "Please fill in all required fields",
+        description: "Name, email, location, and review text are required.",
         variant: "destructive",
       });
+      setIsSubmittingReview(false);
       return;
     }
 
-    const newReview: Review = {
-      id: Date.now().toString(),
-      name: reviewForm.name.trim(),
-      rating: reviewForm.rating,
-      text: reviewForm.text.trim(),
-      date: new Date().toLocaleDateString(),
-    };
+    try {
+      // Wait for EmailJS to be available with timeout (same as consultation form)
+      const waitForEmailJS = () => {
+        return new Promise((resolve, reject) => {
+          let attempts = 0;
+          const maxAttempts = 50; // 5 seconds total
 
-    const updatedReviews = [newReview, ...submittedReviews];
-    setSubmittedReviews(updatedReviews);
+          const checkEmailJS = () => {
+            attempts++;
+            if (typeof window !== "undefined" && (window as any).emailjs) {
+              resolve(true);
+            } else if (attempts >= maxAttempts) {
+              reject(new Error("EmailJS failed to load after 5 seconds"));
+            } else {
+              setTimeout(checkEmailJS, 100);
+            }
+          };
 
-    // Save to localStorage for persistence
-    localStorage.setItem(
-      "serene-wings-reviews",
-      JSON.stringify(updatedReviews),
-    );
+          checkEmailJS();
+        });
+      };
 
-    setReviewForm({ name: "", email: "", rating: 5, text: "" });
-    setShowReviewForm(false);
+      // Wait for EmailJS to be ready
+      await waitForEmailJS();
+      console.log("EmailJS is ready for testimonial submission");
 
-    toast({
-      title: "Thank you for your review!",
-      description:
-        "Your review has been submitted and is now visible on our site.",
-    });
+      // Format rating for display
+      const starRating = "⭐".repeat(reviewForm.rating);
+
+      // Prepare template parameters for EmailJS - matching your template structure exactly
+      templateParams = {
+        from_name: reviewForm.name.trim(),
+        from_email: reviewForm.email.trim(),
+        message: `${starRating} (${reviewForm.rating}/5 stars)\n\nLocation: ${reviewForm.location.trim()}\n\nReview: ${reviewForm.text.trim()}`,
+        to_name: "Serene Wings Team",
+        reply_to: reviewForm.email.trim(),
+      };
+
+      console.log("Sending testimonial email with params:", templateParams);
+
+      // Send email using EmailJS with your credentials
+      const result = await (window as any).emailjs.send(
+        "default_service", // Your service ID
+        "template_f3hqekj", // Your template ID
+        templateParams,
+        "hY3udrZIX5U6NSVyG", // Use public key as string parameter
+      );
+
+      console.log("EmailJS testimonial result:", result);
+
+      // Check if the result indicates success
+      if (result.status === 200 || result.text === "OK") {
+        // Save to database for persistence
+        try {
+          const { data, error } = await supabase
+            .from("testimonials")
+            .insert({
+              name: reviewForm.name.trim(),
+              email: reviewForm.email.trim(),
+              rating: reviewForm.rating,
+              text: reviewForm.text.trim(),
+              location: reviewForm.location.trim(),
+              is_approved: true,
+            })
+            .select()
+            .single();
+
+          if (error) {
+            console.error("Database save failed:", error);
+            // Add to local state as fallback
+            const fallbackReview: Review = {
+              id: Date.now().toString(),
+              name: reviewForm.name.trim(),
+              rating: reviewForm.rating,
+              text: reviewForm.text.trim(),
+              date: new Date().toLocaleDateString(),
+              location: reviewForm.location.trim(),
+            };
+            setSubmittedReviews([fallbackReview, ...submittedReviews]);
+          } else {
+            console.log(
+              "✅ [Home] Testimonial saved to database successfully!",
+              data,
+            );
+            // Immediately refresh testimonials from database to get the latest data
+            await fetchTestimonials();
+          }
+        } catch (dbError) {
+          console.error("Database save error:", dbError);
+          // Add to local state as fallback
+          const fallbackReview: Review = {
+            id: Date.now().toString(),
+            name: reviewForm.name.trim(),
+            rating: reviewForm.rating,
+            text: reviewForm.text.trim(),
+            date: new Date().toLocaleDateString(),
+          };
+          setSubmittedReviews([fallbackReview, ...submittedReviews]);
+        }
+
+        // Show friendly confirmation message (same as consultation form)
+        toast({
+          title: "🎉 Review Submitted Successfully!",
+          description:
+            "Thank you for your feedback! We've received your review and will be in touch soon.",
+          duration: 6000,
+        });
+
+        // Show additional success message after a delay
+        setTimeout(() => {
+          toast({
+            title: "📧 Confirmation Email Sent",
+            description:
+              "We've sent your review to our team. Thank you for sharing your experience!",
+            duration: 5000,
+          });
+        }, 1000);
+
+        // Reset form and close modal
+        setReviewForm({
+          name: "",
+          email: "",
+          rating: 5,
+          text: "",
+          location: "",
+        });
+        setShowReviewForm(false);
+      } else {
+        throw new Error(`EmailJS returned status: ${result.status}`);
+      }
+    } catch (error) {
+      console.error("Detailed error sending testimonial:", {
+        error,
+        message: error instanceof Error ? error.message : "Unknown error",
+        stack: error instanceof Error ? error.stack : undefined,
+        response:
+          error && typeof error === "object" && "text" in error
+            ? error.text
+            : "No response text",
+        status:
+          error && typeof error === "object" && "status" in error
+            ? error.status
+            : "No status",
+        templateParams: templateParams, // Now safely defined
+      });
+
+      // More specific error messages (same as consultation form)
+      let errorMessage =
+        "There was an issue submitting your review. Please try again or call us at +1(919)633-2118 or +1(919)888-1810.";
+
+      if (error instanceof Error) {
+        if (error.message.includes("EmailJS failed to load")) {
+          errorMessage =
+            "Email service is temporarily unavailable. Please call us directly at +1(919)633-2118 or +1(919)888-1810 to share your review.";
+        } else if (
+          error.message.includes("Network") ||
+          error.message.includes("fetch")
+        ) {
+          errorMessage =
+            "Network connection issue. Please check your internet connection and try again, or call us at +1(919)633-2118 or +1(919)888-1810.";
+        }
+      }
+
+      toast({
+        title: "Submission Error",
+        description: errorMessage,
+        variant: "destructive",
+        duration: 8000,
+      });
+    } finally {
+      setIsSubmittingReview(false);
+    }
   };
 
   return (
@@ -383,7 +637,10 @@ export default function LandingPage() {
               className="hidden sm:inline-flex items-center space-x-2"
             >
               <Phone className="h-4 w-4" />
-              <span>(919) 888-1810</span>
+              <div className="flex flex-col text-sm">
+                <span>+1(919)633-2118</span>
+                <span>+1(919)888-1810</span>
+              </div>
             </Button>
             <Button
               onClick={scrollToConsultation}
@@ -493,53 +750,69 @@ export default function LandingPage() {
               </div>
 
               <div className="max-w-4xl mx-auto">
-                <div className="text-center">
-                  <blockquote className="text-lg text-gray-700 mb-6 italic">
-                    &quot;{testimonials[currentTestimonial].text}&quot;
-                  </blockquote>
-                  <div className="flex items-center justify-center space-x-2">
+                {isLoadingTestimonials ? (
+                  <div className="text-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                    <p className="text-gray-600">Loading testimonials...</p>
+                  </div>
+                ) : allTestimonials.length > 0 ? (
+                  <>
                     <div className="text-center">
-                      <p className="font-semibold text-gray-900">
-                        {testimonials[currentTestimonial].name}
-                      </p>
-                      <p className="text-sm text-gray-600">
-                        {testimonials[currentTestimonial].location}
-                      </p>
+                      <blockquote className="text-lg text-gray-700 mb-6 italic">
+                        &quot;{allTestimonials[currentTestimonial].text}&quot;
+                      </blockquote>
+                      <div className="flex items-center justify-center space-x-2">
+                        <div className="text-center">
+                          <p className="font-semibold text-gray-900">
+                            {allTestimonials[currentTestimonial].name}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            {allTestimonials[currentTestimonial].location} •{" "}
+                            {allTestimonials[currentTestimonial].date}
+                          </p>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
 
-                <div className="flex justify-center items-center space-x-4 mt-8">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={prevTestimonial}
-                    className="p-2 hover:bg-white"
-                  >
-                    <ChevronLeft className="h-5 w-5" />
-                  </Button>
-                  <div className="flex space-x-2">
-                    {testimonials.map((_, index) => (
-                      <button
-                        key={index}
-                        className={`w-2 h-2 rounded-full transition-colors ${
-                          index === currentTestimonial
-                            ? "bg-blue-600"
-                            : "bg-gray-300"
-                        }`}
-                        onClick={() => setCurrentTestimonial(index)}
-                      />
-                    ))}
+                    <div className="flex justify-center items-center space-x-4 mt-8">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={prevTestimonial}
+                        className="p-2 hover:bg-white"
+                      >
+                        <ChevronLeft className="h-5 w-5" />
+                      </Button>
+                      <div className="flex space-x-2">
+                        {allTestimonials.map((_, index) => (
+                          <button
+                            key={index}
+                            className={`w-2 h-2 rounded-full transition-colors ${
+                              index === currentTestimonial
+                                ? "bg-blue-600"
+                                : "bg-gray-300"
+                            }`}
+                            onClick={() => setCurrentTestimonial(index)}
+                          />
+                        ))}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={nextTestimonial}
+                        className="p-2 hover:bg-white"
+                      >
+                        <ChevronRight className="h-5 w-5" />
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center py-8">
+                    <p className="text-gray-600">
+                      No testimonials available at the moment.
+                    </p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={nextTestimonial}
-                    className="p-2 hover:bg-white"
-                  >
-                    <ChevronRight className="h-5 w-5" />
-                  </Button>
-                </div>
+                )}
               </div>
             </div>
           </div>
@@ -704,7 +977,7 @@ export default function LandingPage() {
                         Local Presence
                       </p>
                       <p className="text-sm text-gray-600">
-                        Serving Triangle families since 2015
+                        Serving Triangle families since 2019
                       </p>
                     </div>
                   </div>
@@ -732,7 +1005,7 @@ export default function LandingPage() {
             </div>
 
             <Card className="p-8">
-              <form id="appointment-form" className="space-y-6">
+              <form onSubmit={handleConsultationSubmit} className="space-y-6">
                 <div className="grid md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label
@@ -785,22 +1058,26 @@ export default function LandingPage() {
 
                 <div className="grid md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label className="text-base font-medium">
+                    <Label
+                      htmlFor="preferredDate"
+                      className="text-base font-medium"
+                    >
                       Preferred Date *
                     </Label>
-                    <Popover>
-                      <Input
-                        id="preferredDate"
-                        name="preferredDate"
-                        type="date"
-                        className="h-12 text-base"
-                        min={new Date().toISOString().split("T")[0]}
-                        required
-                      />
-                    </Popover>
+                    <Input
+                      id="preferredDate"
+                      name="preferredDate"
+                      type="date"
+                      className="h-12 text-base"
+                      min={new Date().toISOString().split("T")[0]}
+                      required
+                    />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="time" className="text-base font-medium">
+                    <Label
+                      htmlFor="preferredTime"
+                      className="text-base font-medium"
+                    >
                       Preferred Time *
                     </Label>
                     <select
@@ -879,8 +1156,16 @@ export default function LandingPage() {
                   type="submit"
                   size="lg"
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white h-12 text-base"
+                  disabled={isSubmittingConsultation}
                 >
-                  🔵 Request Appointment
+                  {isSubmittingConsultation ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Submitting...
+                    </>
+                  ) : (
+                    "🔵 Request Appointment"
+                  )}
                 </Button>
 
                 <div className="text-center">
@@ -925,8 +1210,9 @@ export default function LandingPage() {
                   📞 Human Support
                 </h3>
                 <p className="text-gray-600">
-                  Need help? Call us anytime: <strong>(919) 888-1810</strong>.
-                  Real people are here to assist you every step of the way.
+                  Need help? Call us anytime: <strong>+1(919)633-2118</strong>{" "}
+                  or <strong>+1(919)888-1810</strong>. Real people are here to
+                  assist you every step of the way.
                 </p>
               </Card>
 
@@ -956,9 +1242,9 @@ export default function LandingPage() {
                   </AccordionTrigger>
                   <AccordionContent>
                     Yes, absolutely. You can cancel or reschedule your
-                    consultation at any time by calling us at (919) 888-1810 or
-                    emailing us. We understand that schedules change and we're
-                    flexible to accommodate your needs.
+                    consultation at any time by calling us at +1(919)633-2118 or
+                    +1(919)888-1810 or emailing us. We understand that schedules
+                    change and we're flexible to accommodate your needs.
                   </AccordionContent>
                 </AccordionItem>
                 <AccordionItem value="item-2">
@@ -1032,7 +1318,7 @@ export default function LandingPage() {
                   className="border-white text-white hover:bg-white hover:text-blue-600 px-8 py-4 text-lg flex items-center"
                 >
                   <Phone className="mr-2 h-5 w-5" />
-                  Call (919) 888-1810
+                  Call +1(919)633-2118
                 </Button>
               </div>
             </div>
@@ -1053,12 +1339,15 @@ export default function LandingPage() {
               </div>
               <p className="text-gray-300 mb-6 max-w-md">
                 Providing compassionate, professional elderly care services to
-                families throughout the Raleigh, NC area since 2015.
+                families throughout the Raleigh, NC area since 2019.
               </p>
               <div className="space-y-2">
                 <div className="flex items-center space-x-3">
                   <Phone className="h-5 w-5 text-blue-400" />
-                  <span>(919) 888-1810</span>
+                  <div className="flex flex-col text-sm">
+                    <span>+1(919)633-2118</span>
+                    <span>+1(919)888-1810</span>
+                  </div>
                 </div>
                 <div className="flex items-center space-x-3">
                   <MapPin className="h-5 w-5 text-blue-400" />
@@ -1254,6 +1543,22 @@ export default function LandingPage() {
             </div>
 
             <div className="space-y-2">
+              <Label htmlFor="reviewLocation" className="text-sm font-medium">
+                Your Location *
+              </Label>
+              <Input
+                id="reviewLocation"
+                value={reviewForm.location}
+                onChange={(e) =>
+                  setReviewForm({ ...reviewForm, location: e.target.value })
+                }
+                placeholder="e.g., North Raleigh, Cary, Wake Forest"
+                className="h-10"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="reviewText" className="text-sm font-medium">
                 Your Review *
               </Label>
@@ -1281,8 +1586,16 @@ export default function LandingPage() {
               <Button
                 type="submit"
                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                disabled={isSubmittingReview}
               >
-                Submit Review
+                {isSubmittingReview ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Submitting...
+                  </>
+                ) : (
+                  "Submit Review"
+                )}
               </Button>
             </div>
           </form>

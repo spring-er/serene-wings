@@ -39,9 +39,11 @@ export default function ContactPage() {
     preferredTime: "",
     message: "",
   });
+  const [isSubmittingContact, setIsSubmittingContact] = useState(false);
 
-  const handleContactSubmit = (e: React.FormEvent) => {
+  const handleContactSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmittingContact(true);
 
     if (
       !contactForm.fullName.trim() ||
@@ -53,25 +55,108 @@ export default function ContactPage() {
         title: "Please fill in all required fields",
         variant: "destructive",
       });
+      setIsSubmittingContact(false);
       return;
     }
 
-    // Here you would typically send the form data to your backend
-    console.log("Contact form submitted:", contactForm);
+    try {
+      // Wait for EmailJS to be available
+      const waitForEmailJS = () => {
+        return new Promise((resolve, reject) => {
+          let attempts = 0;
+          const maxAttempts = 50;
 
-    toast({
-      title: "Message sent successfully!",
-      description: "We'll get back to you within 24 hours.",
-    });
+          const checkEmailJS = () => {
+            attempts++;
+            if (typeof window !== "undefined" && (window as any).emailjs) {
+              resolve(true);
+            } else if (attempts >= maxAttempts) {
+              reject(new Error("EmailJS failed to load after 5 seconds"));
+            } else {
+              setTimeout(checkEmailJS, 100);
+            }
+          };
 
-    // Reset form
-    setContactForm({
-      fullName: "",
-      phone: "",
-      email: "",
-      preferredTime: "",
-      message: "",
-    });
+          checkEmailJS();
+        });
+      };
+
+      await waitForEmailJS();
+      console.log("EmailJS is ready for contact form");
+
+      // Format preferred time for display
+      const formattedPreferredTime = contactForm.preferredTime
+        ? contactForm.preferredTime.charAt(0).toUpperCase() +
+          contactForm.preferredTime.slice(1)
+        : "No preference";
+
+      // Prepare template parameters for EmailJS
+      const templateParams = {
+        from_name: contactForm.fullName.trim(),
+        from_email: contactForm.email.trim(),
+        phone_number: contactForm.phone.trim(),
+        preferred_time: formattedPreferredTime,
+        message: contactForm.message.trim(),
+        to_name: "Serene Wings Team",
+        reply_to: contactForm.email.trim(),
+        subject: `Contact Form Message from ${contactForm.fullName.trim()}`,
+      };
+
+      console.log("Sending contact form email with params:", templateParams);
+
+      // Send email using EmailJS
+      const result = await (window as any).emailjs.send(
+        "default_service",
+        "template_xryflbn", // Using the same template as consultation form
+        templateParams,
+        {
+          publicKey: "MBvyIzybQI8o_Z3w-",
+        },
+      );
+
+      console.log("EmailJS contact form result:", result);
+
+      if (result.status === 200 || result.text === "OK") {
+        toast({
+          title: "✅ Message sent successfully!",
+          description:
+            "We'll get back to you within 24 hours. Check your email for confirmation.",
+          duration: 6000,
+        });
+
+        // Reset form
+        setContactForm({
+          fullName: "",
+          phone: "",
+          email: "",
+          preferredTime: "",
+          message: "",
+        });
+      } else {
+        throw new Error(`EmailJS returned status: ${result.status}`);
+      }
+    } catch (error) {
+      console.error("Error sending contact form:", error);
+
+      let errorMessage =
+        "There was an issue sending your message. Please call us directly at +1(919)449-5005, +1(919)633-2118, or +1(919)888-1810 and we'll be happy to help you.";
+
+      if (error instanceof Error) {
+        if (error.message.includes("EmailJS failed to load")) {
+          errorMessage =
+            "Email service is temporarily unavailable. Please call us directly at +1(919)449-5005, +1(919)633-2118, or +1(919)888-1810.";
+        }
+      }
+
+      toast({
+        title: "Message sending failed",
+        description: errorMessage,
+        variant: "destructive",
+        duration: 8000,
+      });
+    } finally {
+      setIsSubmittingContact(false);
+    }
   };
 
   return (
@@ -116,7 +201,11 @@ export default function ContactPage() {
               className="hidden sm:inline-flex items-center space-x-2"
             >
               <Phone className="h-4 w-4" />
-              <span>(919) 888-1810</span>
+              <div className="flex flex-col text-sm">
+                <span>+1(919)449-5005</span>
+                <span>+1(919)633-2118</span>
+                <span>+1(919)888-1810</span>
+              </div>
             </Button>
             <Link to="/">
               <Button className="bg-blue-600 hover:bg-blue-700 text-white">
@@ -288,8 +377,16 @@ export default function ContactPage() {
                         type="submit"
                         size="lg"
                         className="w-full bg-blue-600 hover:bg-blue-700 text-white h-12 text-base"
+                        disabled={isSubmittingContact}
                       >
-                        Send Message
+                        {isSubmittingContact ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                            Sending...
+                          </>
+                        ) : (
+                          "Send Message"
+                        )}
                       </Button>
                     </form>
                   </CardContent>
@@ -304,22 +401,6 @@ export default function ContactPage() {
                   </h2>
                   <div className="space-y-6">
                     <div className="flex items-start space-x-4">
-                      <div className="bg-blue-100 p-3 rounded-lg">
-                        <MapPin className="h-6 w-6 text-blue-600" />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-gray-900 mb-1">
-                          Address
-                        </h3>
-                        <p className="text-gray-600">
-                          123 Main Street, Suite 100
-                          <br />
-                          Raleigh, NC 27601
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start space-x-4">
                       <div className="bg-green-100 p-3 rounded-lg">
                         <Phone className="h-6 w-6 text-green-600" />
                       </div>
@@ -327,14 +408,26 @@ export default function ContactPage() {
                         <h3 className="font-semibold text-gray-900 mb-1">
                           Phone
                         </h3>
-                        <p className="text-gray-600">
+                        <div className="text-gray-600 space-y-1">
+                          <a
+                            href="tel:+19194495005"
+                            className="hover:text-blue-600 transition-colors block"
+                          >
+                            +1(919)449-5005
+                          </a>
+                          <a
+                            href="tel:+19196332118"
+                            className="hover:text-blue-600 transition-colors block"
+                          >
+                            +1(919)633-2118
+                          </a>
                           <a
                             href="tel:+19198881810"
-                            className="hover:text-blue-600 transition-colors"
+                            className="hover:text-blue-600 transition-colors block"
                           >
-                            (919) 888-1810
+                            +1(919)888-1810
                           </a>
-                        </p>
+                        </div>
                       </div>
                     </div>
 
@@ -348,10 +441,10 @@ export default function ContactPage() {
                         </h3>
                         <p className="text-gray-600">
                           <a
-                            href="mailto:info@serenewingscaregivingllc.com"
+                            href="mailto:serenewingscaregivingllc@gmail.com"
                             className="hover:text-blue-600 transition-colors"
                           >
-                            info@serenewingscaregivingllc.com
+                            serenewingscaregivingllc@gmail.com
                           </a>
                         </p>
                       </div>
@@ -382,31 +475,31 @@ export default function ContactPage() {
                         <p className="text-gray-600">
                           Available 24/7
                           <br />
-                          <a
-                            href="tel:+19198881810"
-                            className="hover:text-blue-600 transition-colors font-medium"
-                          >
-                            (919) 888-1810
-                          </a>
+                          <div className="space-y-1">
+                            <a
+                              href="tel:+19194495005"
+                              className="hover:text-blue-600 transition-colors font-medium block"
+                            >
+                              +1(919)449-5005
+                            </a>
+                            <a
+                              href="tel:+19196332118"
+                              className="hover:text-blue-600 transition-colors font-medium block"
+                            >
+                              +1(919)633-2118
+                            </a>
+                            <a
+                              href="tel:+19198881810"
+                              className="hover:text-blue-600 transition-colors font-medium block"
+                            >
+                              +1(919)888-1810
+                            </a>
+                          </div>
                         </p>
                       </div>
                     </div>
                   </div>
                 </div>
-
-                {/* Map Placeholder */}
-                <Card className="overflow-hidden">
-                  <div className="h-64 bg-gray-100 flex items-center justify-center">
-                    <div className="text-center">
-                      <MapPin className="h-12 w-12 text-gray-400 mx-auto mb-2" />
-                      <p className="text-gray-500">
-                        Interactive Map
-                        <br />
-                        <span className="text-sm">Coming Soon</span>
-                      </p>
-                    </div>
-                  </div>
-                </Card>
               </div>
             </div>
           </div>
@@ -447,12 +540,16 @@ export default function ContactPage() {
               </div>
               <p className="text-gray-300 mb-6 max-w-md">
                 Providing compassionate, professional elderly care services to
-                families throughout the Raleigh, NC area since 2015.
+                families throughout the Raleigh, NC area since 2019.
               </p>
               <div className="space-y-2">
                 <div className="flex items-center space-x-3">
                   <Phone className="h-5 w-5 text-blue-400" />
-                  <span>(919) 888-1810</span>
+                  <div className="flex flex-col text-sm">
+                    <span>+1(919)449-5005</span>
+                    <span>+1(919)633-2118</span>
+                    <span>+1(919)888-1810</span>
+                  </div>
                 </div>
                 <div className="flex items-center space-x-3">
                   <MapPin className="h-5 w-5 text-blue-400" />
