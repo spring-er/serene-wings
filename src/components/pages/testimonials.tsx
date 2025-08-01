@@ -190,6 +190,17 @@ export default function TestimonialsPage() {
           location: testimonial.location || "Raleigh Area",
         })) || [];
 
+      // Sort by creation date (newest first) to ensure proper ordering
+      dbTestimonials.sort((a, b) => {
+        const dateA = new Date(
+          data?.find((t) => t.id === a.id)?.created_at || 0,
+        );
+        const dateB = new Date(
+          data?.find((t) => t.id === b.id)?.created_at || 0,
+        );
+        return dateB.getTime() - dateA.getTime();
+      });
+
       setSubmittedReviews(dbTestimonials);
       console.log(
         `✅ [Testimonials Page] Successfully loaded ${dbTestimonials.length} testimonials from database`,
@@ -272,6 +283,11 @@ export default function TestimonialsPage() {
 
         // Immediately refresh testimonials from database to show the new one
         await fetchTestimonialsFromDatabase();
+
+        // Update current testimonial index to show the new one if it's the first
+        if (allTestimonials.length === 0) {
+          setCurrentTestimonial(0);
+        }
       }
     } catch (dbError) {
       console.error("❌ [Testimonials Page] Database save error:", dbError);
