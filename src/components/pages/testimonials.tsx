@@ -160,11 +160,22 @@ export default function TestimonialsPage() {
         "🔄 [Testimonials Page] Fetching testimonials from database...",
       );
 
-      const { data, error } = await supabase
+      // Add timeout to prevent hanging requests
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Request timeout")), 15000); // Increased timeout
+      });
+
+      const fetchPromise = supabase
         .from("testimonials")
         .select("*")
         .eq("is_approved", true)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(50); // Add limit to prevent large responses
+
+      const { data, error } = await Promise.race([
+        fetchPromise,
+        timeoutPromise,
+      ]);
 
       if (error) {
         console.error(
@@ -211,6 +222,57 @@ export default function TestimonialsPage() {
         "❌ [Testimonials Page] Error fetching testimonials:",
         error,
       );
+
+      // Check if it's a certificate, network, or timeout error
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const errorDetails =
+        error && typeof error === "object" && "details" in error
+          ? String(error.details)
+          : "";
+
+      if (
+        errorMessage.includes("certificate") ||
+        errorMessage.includes("CERT_AUTHORITY_INVALID") ||
+        errorMessage.includes("Failed to fetch") ||
+        errorMessage.includes("timeout") ||
+        errorMessage.includes("network") ||
+        errorDetails.includes("CERT_AUTHORITY_INVALID") ||
+        errorDetails.includes("Failed to fetch")
+      ) {
+        console.warn(
+          "🔧 [Testimonials Page] Network/Certificate issue detected. This is likely a development environment SSL certificate issue.",
+        );
+        console.warn(
+          "🔧 [Testimonials Page] Testimonials will use fallback data. In production, this should resolve automatically.",
+        );
+
+        // Only show toast in production to reduce development noise
+        if (import.meta.env.PROD) {
+          toast({
+            title: "Connection Issue",
+            description:
+              "Unable to load latest testimonials from database. Showing default reviews.",
+            variant: "default",
+            duration: 5000,
+          });
+        }
+      } else {
+        // For non-certificate errors, show a different message
+        console.error(
+          "🚨 [Testimonials Page] Unexpected database error:",
+          error,
+        );
+        if (import.meta.env.PROD) {
+          toast({
+            title: "Database Error",
+            description: "Unable to load testimonials. Please try again later.",
+            variant: "destructive",
+            duration: 5000,
+          });
+        }
+      }
+
       // Set empty array on error to prevent infinite loading
       setSubmittedReviews([]);
     } finally {
@@ -257,7 +319,12 @@ export default function TestimonialsPage() {
         "💾 [Testimonials Page] Saving testimonial to database first...",
       );
 
-      const { data, error } = await supabase
+      // Add timeout to prevent hanging requests
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Database save timeout")), 15000); // Increased timeout
+      });
+
+      const savePromise = supabase
         .from("testimonials")
         .insert({
           name: reviewForm.name.trim(),
@@ -269,6 +336,8 @@ export default function TestimonialsPage() {
         })
         .select()
         .single();
+
+      const { data, error } = await Promise.race([savePromise, timeoutPromise]);
 
       if (error) {
         console.error("❌ [Testimonials Page] Database save failed:", error);
@@ -292,14 +361,52 @@ export default function TestimonialsPage() {
     } catch (dbError) {
       console.error("❌ [Testimonials Page] Database save error:", dbError);
 
-      // Show database error but continue with email
-      toast({
-        title: "⚠️ Database Save Issue",
-        description:
-          "There was an issue saving to our database, but we'll still send your review via email.",
-        variant: "destructive",
-        duration: 5000,
-      });
+      // Check if it's a certificate, network, or timeout error
+      const errorMessage =
+        dbError instanceof Error ? dbError.message : String(dbError);
+      const errorDetails =
+        dbError && typeof dbError === "object" && "details" in dbError
+          ? String(dbError.details)
+          : "";
+
+      if (
+        errorMessage.includes("certificate") ||
+        errorMessage.includes("CERT_AUTHORITY_INVALID") ||
+        errorMessage.includes("Failed to fetch") ||
+        errorMessage.includes("timeout") ||
+        errorMessage.includes("network") ||
+        errorDetails.includes("CERT_AUTHORITY_INVALID") ||
+        errorDetails.includes("Failed to fetch")
+      ) {
+        console.warn(
+          "🔧 [Testimonials Page] Network/Certificate issue detected during save. This is likely a development environment SSL certificate issue.",
+        );
+        console.warn(
+          "🔧 [Testimonials Page] Email submission will continue. In production, database saves should work normally.",
+        );
+
+        // Only show error toast in production to reduce development noise
+        if (import.meta.env.PROD) {
+          toast({
+            title: "⚠️ Connection Issue",
+            description:
+              "Unable to save to database due to connection issues, but we'll send your review via email.",
+            variant: "destructive",
+            duration: 5000,
+          });
+        }
+      } else {
+        // Show database error but continue with email (only in production)
+        if (import.meta.env.PROD) {
+          toast({
+            title: "⚠️ Database Save Issue",
+            description:
+              "There was an issue saving to our database, but we'll still send your review via email.",
+            variant: "destructive",
+            duration: 5000,
+          });
+        }
+      }
     }
 
     // Then, send email notification (secondary priority)
