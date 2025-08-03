@@ -129,12 +129,23 @@ export default function LandingPage() {
   }, [isLoadingTestimonials]);
 
   const fetchTestimonials = async () => {
+    const isDevelopment = import.meta.env.DEV;
+
     try {
+      // In development, skip database fetch and use fallback data immediately
+      if (isDevelopment) {
+        console.log(
+          "🔧 [Home] Development mode: Using fallback testimonials (database fetch bypassed)",
+        );
+        setSubmittedReviews([]);
+        return;
+      }
+
       console.log("🔄 [Home] Fetching testimonials from database...");
 
       // Add timeout to prevent hanging requests
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error("Request timeout")), 15000); // Increased timeout
+        setTimeout(() => reject(new Error("Request timeout")), 15000);
       });
 
       const fetchPromise = supabase
@@ -142,7 +153,7 @@ export default function LandingPage() {
         .select("*")
         .eq("is_approved", true)
         .order("created_at", { ascending: false })
-        .limit(50); // Add limit to prevent large responses
+        .limit(50);
 
       const { data, error } = await Promise.race([
         fetchPromise,
@@ -150,7 +161,6 @@ export default function LandingPage() {
       ]);
 
       if (error) {
-        console.error("❌ [Home] Error fetching testimonials:", error);
         throw error;
       }
 
@@ -173,59 +183,34 @@ export default function LandingPage() {
       setSubmittedReviews(dbTestimonials);
       console.log(
         `✅ [Home] Successfully loaded ${dbTestimonials.length} testimonials from database`,
-        dbTestimonials,
       );
     } catch (error) {
-      console.error("❌ [Home] Error fetching testimonials:", error);
-
-      // Check if it's a certificate, network, or timeout error
+      // Simplified error handling - no more certificate-specific logic needed
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      const errorDetails =
-        error && typeof error === "object" && "details" in error
-          ? String(error.details)
-          : "";
-
-      if (
+      const isCertError =
         errorMessage.includes("certificate") ||
-        errorMessage.includes("CERT_AUTHORITY_INVALID") ||
-        errorMessage.includes("Failed to fetch") ||
-        errorMessage.includes("timeout") ||
-        errorMessage.includes("network") ||
-        errorDetails.includes("CERT_AUTHORITY_INVALID") ||
-        errorDetails.includes("Failed to fetch")
-      ) {
-        console.warn(
-          "🔧 [Home] Network/Certificate issue detected. This is likely a development environment SSL certificate issue.",
-        );
-        console.warn(
-          "🔧 [Home] Testimonials will use fallback data. In production, this should resolve automatically.",
-        );
+        errorMessage.includes("CertificateError") ||
+        errorMessage.includes("SSL certificate validation bypassed");
 
-        // Only show toast in production to reduce development noise
-        if (import.meta.env.PROD) {
-          toast({
-            title: "Connection Issue",
-            description:
-              "Unable to load latest testimonials. Showing cached reviews.",
-            variant: "default",
-            duration: 5000,
-          });
-        }
-      } else {
-        // For non-certificate errors, show a different message
-        console.error("🚨 [Home] Unexpected database error:", error);
-        if (import.meta.env.PROD) {
-          toast({
-            title: "Database Error",
-            description: "Unable to load testimonials. Please try again later.",
-            variant: "destructive",
-            duration: 5000,
-          });
-        }
+      if (isCertError && isDevelopment) {
+        // Silent handling in development for certificate issues
+        console.log(
+          "🔧 [Home] Development mode: Database connection bypassed due to SSL certificate issues",
+        );
+      } else if (!isDevelopment) {
+        // Only log errors in production
+        console.error("❌ [Home] Error fetching testimonials:", error);
+        toast({
+          title: "Connection Issue",
+          description:
+            "Unable to load latest testimonials. Showing default reviews.",
+          variant: "default",
+          duration: 5000,
+        });
       }
 
-      // Set empty array on error to prevent infinite loading
+      // Always use fallback data
       setSubmittedReviews([]);
     } finally {
       setIsLoadingTestimonials(false);

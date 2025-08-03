@@ -155,7 +155,18 @@ export default function TestimonialsPage() {
   const allTestimonials = [...testimonials, ...submittedReviews];
 
   const fetchTestimonialsFromDatabase = async () => {
+    const isDevelopment = import.meta.env.DEV;
+
     try {
+      // In development, skip database fetch and use fallback data immediately
+      if (isDevelopment) {
+        console.log(
+          "🔧 [Testimonials Page] Development mode: Using fallback testimonials (database fetch bypassed)",
+        );
+        setSubmittedReviews([]);
+        return;
+      }
+
       console.log(
         "🔄 [Testimonials Page] Fetching testimonials from database...",
       );
@@ -164,7 +175,7 @@ export default function TestimonialsPage() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
         controller.abort();
-      }, 25000); // 25 second timeout
+      }, 25000);
 
       try {
         const { data, error } = await supabase
@@ -178,12 +189,6 @@ export default function TestimonialsPage() {
         clearTimeout(timeoutId);
 
         if (error) {
-          console.error("❌ [Testimonials Page] Supabase error:", {
-            message: error.message,
-            details: error.details,
-            hint: error.hint,
-            code: error.code,
-          });
           throw error;
         }
 
@@ -223,79 +228,35 @@ export default function TestimonialsPage() {
         throw fetchError;
       }
     } catch (error) {
-      console.error("❌ [Testimonials Page] Error fetching testimonials:", {
-        error,
-        message: error instanceof Error ? error.message : String(error),
-        cause: error instanceof Error ? error.cause : undefined,
-        timestamp: new Date().toISOString(),
-      });
-
-      // Enhanced error detection
+      // Simplified error handling - no more certificate-specific logic needed
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      const errorCause =
-        error instanceof Error && error.cause ? String(error.cause) : "";
-      const errorDetails =
-        error && typeof error === "object" && "details" in error
-          ? String(error.details)
-          : "";
+      const isCertError =
+        errorMessage.includes("certificate") ||
+        errorMessage.includes("CertificateError") ||
+        errorMessage.includes("SSL certificate validation bypassed");
 
-      const isNetworkError = [
-        "certificate",
-        "CERT_AUTHORITY_INVALID",
-        "CERT_INVALID",
-        "SSL",
-        "TLS",
-        "Failed to fetch",
-        "fetch failed",
-        "Network request failed",
-        "timeout",
-        "aborted",
-        "AbortError",
-      ].some(
-        (keyword) =>
-          errorMessage.toLowerCase().includes(keyword.toLowerCase()) ||
-          errorCause.toLowerCase().includes(keyword.toLowerCase()) ||
-          errorDetails.toLowerCase().includes(keyword.toLowerCase()),
-      );
-
-      if (isNetworkError) {
-        console.warn(
-          "🔧 [Testimonials Page] Network/Certificate issue detected. This is likely a development environment SSL certificate issue.",
+      if (isCertError && isDevelopment) {
+        // Silent handling in development for certificate issues
+        console.log(
+          "🔧 [Testimonials Page] Development mode: Database connection bypassed due to SSL certificate issues",
         );
-        console.warn(
-          "🔧 [Testimonials Page] Testimonials will use fallback data. In production, this should resolve automatically.",
-        );
-
-        // Only show toast in production to reduce development noise
-        if (import.meta.env.PROD) {
-          toast({
-            title: "Connection Issue",
-            description:
-              "Unable to load latest testimonials from database. Showing default reviews.",
-            variant: "default",
-            duration: 5000,
-          });
-        }
-      } else {
-        // For non-network errors, show a different message
+      } else if (!isDevelopment) {
+        // Only log errors in production
         console.error(
-          "🚨 [Testimonials Page] Unexpected database error:",
+          "❌ [Testimonials Page] Error fetching testimonials:",
           error,
         );
-
-        // Show error toast only in production or for non-network errors
-        if (import.meta.env.PROD) {
-          toast({
-            title: "Database Error",
-            description: "Unable to load testimonials. Please try again later.",
-            variant: "destructive",
-            duration: 5000,
-          });
-        }
+        toast({
+          title: "Connection Issue",
+          description:
+            "Unable to load latest testimonials from database. Showing default reviews.",
+          variant: "default",
+          duration: 5000,
+        });
       }
 
-      // Set empty array on error to prevent infinite loading
+      // Always use fallback data
       setSubmittedReviews([]);
     } finally {
       setIsLoadingTestimonials(false);
@@ -335,121 +296,78 @@ export default function TestimonialsPage() {
     // First, save to database immediately (more reliable than email)
     let databaseSaveSuccess = false;
     let newTestimonialId = null;
+    const isDevelopment = import.meta.env.DEV;
 
-    try {
+    // In development, skip database save and proceed directly to email
+    if (isDevelopment) {
       console.log(
-        "💾 [Testimonials Page] Saving testimonial to database first...",
+        "🔧 [Testimonials Page] Development mode: Skipping database save, proceeding to email",
       );
-
-      // Create a more robust timeout with AbortController
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        controller.abort();
-      }, 20000); // 20 second timeout
-
+    } else {
       try {
-        const { data, error } = await supabase
-          .from("testimonials")
-          .insert({
-            name: reviewForm.name.trim(),
-            email: reviewForm.email.trim(),
-            rating: reviewForm.rating,
-            text: reviewForm.text.trim(),
-            location: reviewForm.location.trim(),
-            is_approved: true,
-          })
-          .select()
-          .single()
-          .abortSignal(controller.signal);
+        console.log(
+          "💾 [Testimonials Page] Saving testimonial to database first...",
+        );
 
-        clearTimeout(timeoutId);
+        // Create a more robust timeout with AbortController
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          controller.abort();
+        }, 20000);
 
-        if (error) {
-          console.error("❌ [Testimonials Page] Supabase save error:", {
-            message: error.message,
-            details: error.details,
-            hint: error.hint,
-            code: error.code,
-          });
-          throw error;
-        } else {
-          console.log(
-            "✅ [Testimonials Page] Testimonial saved to database successfully!",
-            data,
-          );
-          databaseSaveSuccess = true;
-          newTestimonialId = data.id;
+        try {
+          const { data, error } = await supabase
+            .from("testimonials")
+            .insert({
+              name: reviewForm.name.trim(),
+              email: reviewForm.email.trim(),
+              rating: reviewForm.rating,
+              text: reviewForm.text.trim(),
+              location: reviewForm.location.trim(),
+              is_approved: true,
+            })
+            .select()
+            .single()
+            .abortSignal(controller.signal);
 
-          // Immediately refresh testimonials from database to show the new one
-          await fetchTestimonialsFromDatabase();
+          clearTimeout(timeoutId);
 
-          // Update current testimonial index to show the new one if it's the first
-          if (allTestimonials.length === 0) {
-            setCurrentTestimonial(0);
+          if (error) {
+            throw error;
+          } else {
+            console.log(
+              "✅ [Testimonials Page] Testimonial saved to database successfully!",
+              data,
+            );
+            databaseSaveSuccess = true;
+            newTestimonialId = data.id;
+
+            // Immediately refresh testimonials from database to show the new one
+            await fetchTestimonialsFromDatabase();
+
+            // Update current testimonial index to show the new one if it's the first
+            if (allTestimonials.length === 0) {
+              setCurrentTestimonial(0);
+            }
           }
+        } catch (saveError) {
+          clearTimeout(timeoutId);
+          throw saveError;
         }
-      } catch (saveError) {
-        clearTimeout(timeoutId);
-        throw saveError;
-      }
-    } catch (dbError) {
-      console.error("❌ [Testimonials Page] Database save error:", {
-        error: dbError,
-        message: dbError instanceof Error ? dbError.message : String(dbError),
-        cause: dbError instanceof Error ? dbError.cause : undefined,
-        timestamp: new Date().toISOString(),
-      });
+      } catch (dbError) {
+        const errorMessage =
+          dbError instanceof Error ? dbError.message : String(dbError);
+        const isCertError =
+          errorMessage.includes("certificate") ||
+          errorMessage.includes("CertificateError") ||
+          errorMessage.includes("SSL certificate validation bypassed");
 
-      // Enhanced error detection for save operation
-      const errorMessage =
-        dbError instanceof Error ? dbError.message : String(dbError);
-      const errorCause =
-        dbError instanceof Error && dbError.cause ? String(dbError.cause) : "";
-      const errorDetails =
-        dbError && typeof dbError === "object" && "details" in dbError
-          ? String(dbError.details)
-          : "";
-
-      const isNetworkError = [
-        "certificate",
-        "CERT_AUTHORITY_INVALID",
-        "CERT_INVALID",
-        "SSL",
-        "TLS",
-        "Failed to fetch",
-        "fetch failed",
-        "Network request failed",
-        "timeout",
-        "aborted",
-        "AbortError",
-      ].some(
-        (keyword) =>
-          errorMessage.toLowerCase().includes(keyword.toLowerCase()) ||
-          errorCause.toLowerCase().includes(keyword.toLowerCase()) ||
-          errorDetails.toLowerCase().includes(keyword.toLowerCase()),
-      );
-
-      if (isNetworkError) {
-        console.warn(
-          "🔧 [Testimonials Page] Network/Certificate issue detected during save. This is likely a development environment SSL certificate issue.",
-        );
-        console.warn(
-          "🔧 [Testimonials Page] Email submission will continue. In production, database saves should work normally.",
-        );
-
-        // Only show error toast in production to reduce development noise
-        if (import.meta.env.PROD) {
-          toast({
-            title: "⚠️ Connection Issue",
-            description:
-              "Unable to save to database due to connection issues, but we'll send your review via email.",
-            variant: "destructive",
-            duration: 5000,
-          });
-        }
-      } else {
-        // Show database error but continue with email (only in production)
-        if (import.meta.env.PROD) {
+        if (isCertError) {
+          console.log(
+            "🔧 [Testimonials Page] Certificate issue during save - continuing with email only",
+          );
+        } else {
+          console.error("❌ [Testimonials Page] Database save error:", dbError);
           toast({
             title: "⚠️ Database Save Issue",
             description:
